@@ -193,8 +193,13 @@ class TradingBot {
         return false;
       }
     } catch (e) {
-      this.log(`⚠️ checkRiskLimits: ${e.message}`, "warn");
-      return false; // falha ao verificar saldo → não arriscar
+      const code = e.response?.status;
+      if (code === 418 || code === 429) {
+        this._pauseOrders(e.response?.data?.msg || e.message);
+      } else {
+        this.log(`⚠️ checkRiskLimits: ${e.message}`, "warn");
+      }
+      return false;
     }
 
     return true;
@@ -282,30 +287,9 @@ class TradingBot {
       const code = e.response?.status;
       const msg = e.response?.data?.msg || e.message;
 
-      // Ban de IP (418) ou rate limit (429) — pausar ordens por 10 minutos
+      // Ban de IP (418) ou rate limit (429)
       if (code === 418 || code === 429) {
-        // Extrair timestamp do ban se disponível
-        const banMatch = msg.match(/banned until (\d+)/);
-        const banUntil = banMatch
-          ? new Date(parseInt(banMatch[1])).toLocaleTimeString("pt-BR")
-          : "?";
-        this.log(
-          `🚫 IP banido pela Binance até ${banUntil}. Ordens pausadas — WebSocket continua ativo.`,
-          "error",
-        );
-        this._ordersPaused = true;
-        this._ordersPausedAt = Date.now();
-        // Retomar após 11 minutos automaticamente
-        setTimeout(
-          () => {
-            this._ordersPaused = false;
-            this.log(
-              "✅ Pausa de ordens encerrada — bot voltando ao normal",
-              "info",
-            );
-          },
-          11 * 60 * 1000,
-        );
+        this._pauseOrders(msg);
         return;
       }
 
@@ -393,6 +377,25 @@ class TradingBot {
     }
     await this.client.cancelAllOrders(this.config.symbol);
     await this.syncPositions();
+  }
+
+  // ── Pausa por ban de IP ────────────────────────────────────────────────────
+  _pauseOrders(msg) {
+    if (this._ordersPaused) return; // já está pausado, não duplicar timer
+    const banMatch = (msg || "").match(/banned until (\d+)/);
+    const banUntil = banMatch
+      ? new Date(parseInt(banMatch[1])).toLocaleTimeString("pt-BR")
+      : "?";
+    this.log(
+      `🚫 IP banido pela Binance até ${banUntil}. Ordens pausadas por 11 min — WebSocket continua ativo.`,
+      "error",
+    );
+    this._ordersPaused = true;
+    this._ordersPausedAt = Date.now();
+    setTimeout(() => {
+      this._ordersPaused = false;
+      this.log("✅ Pausa de ordens encerrada — bot voltando ao normal", "info");
+    }, 11 * 60 * 1000);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
