@@ -383,11 +383,17 @@ class TradingBot {
   _pauseOrders(msg) {
     if (this._ordersPaused) return; // já está pausado, não duplicar timer
     const banMatch = (msg || "").match(/banned until (\d+)/);
-    const banUntil = banMatch
-      ? new Date(parseInt(banMatch[1])).toLocaleTimeString("pt-BR")
+    const banTs = banMatch ? parseInt(banMatch[1]) : 0;
+    const banUntil = banTs
+      ? new Date(banTs).toLocaleTimeString("pt-BR")
       : "?";
+    // Usa o tempo real do ban + 30s de margem; mínimo 11 min
+    const pauseMs = banTs
+      ? Math.max(banTs - Date.now() + 30_000, 11 * 60 * 1000)
+      : 11 * 60 * 1000;
+    const pauseMin = Math.ceil(pauseMs / 60_000);
     this.log(
-      `🚫 IP banido pela Binance até ${banUntil}. Ordens pausadas por 11 min — WebSocket continua ativo.`,
+      `🚫 IP banido pela Binance até ${banUntil}. Ordens pausadas por ${pauseMin} min — WebSocket continua ativo.`,
       "error",
     );
     this._ordersPaused = true;
@@ -395,7 +401,7 @@ class TradingBot {
     setTimeout(() => {
       this._ordersPaused = false;
       this.log("✅ Pausa de ordens encerrada — bot voltando ao normal", "info");
-    }, 11 * 60 * 1000);
+    }, pauseMs);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
