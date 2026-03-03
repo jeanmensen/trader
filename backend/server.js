@@ -8,6 +8,8 @@ const path = require("path");
 const logger = require("./logger");
 const BinanceClient = require("./binanceClient");
 const TradingBot = require("./bot");
+const TradeStore = require("./tradeStore");
+const { getPgPool } = require("./db");
 const fs = require("fs");
 
 if (!fs.existsSync("logs")) fs.mkdirSync("logs");
@@ -23,15 +25,16 @@ app.use(express.static(path.join(__dirname, "../frontend")));
 // ── State ──────────────────────────────────────────────────────────────────
 let binance = null;
 let bot = null;
+let tradeStore = null;
 const clients = new Set();
 
 let botConfig = {
   symbol: process.env.DEFAULT_SYMBOL || "BTCUSDT",
-  timeframe: process.env.DEFAULT_TIMEFRAME || "1h",
-  leverage: parseInt(process.env.DEFAULT_LEVERAGE || "3"),
-  riskPerTrade: parseFloat(process.env.RISK_PER_TRADE || "1"),
-  stopLossPct: parseFloat(process.env.STOP_LOSS_PCT || "1.5"),
-  takeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || "3.0"),
+  timeframe: process.env.DEFAULT_TIMEFRAME || "15m",
+  leverage: parseInt(process.env.DEFAULT_LEVERAGE || "2"),
+  riskPerTrade: parseFloat(process.env.RISK_PER_TRADE || "0.5"),
+  stopLossPct: parseFloat(process.env.STOP_LOSS_PCT || "1.0"),
+  takeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || "2.0"),
   maxOpenTrades: parseInt(process.env.MAX_OPEN_TRADES || "1"),
   testnet: process.env.USE_TESTNET !== "false",
 };
@@ -57,6 +60,10 @@ function autoConnect() {
 
   // Só instancia — zero chamadas REST
   binance = new BinanceClient(apiKey, apiSecret, botConfig.testnet);
+  if (!tradeStore) {
+    const db = getPgPool();
+    tradeStore = new TradeStore(db);
+  }
   const modo = botConfig.testnet ? "TESTNET" : "LIVE";
   logger.info(`✅ Credenciais carregadas [${modo}] — pronto para operar`);
   broadcast({ type: "connected", data: { testnet: botConfig.testnet } });
@@ -118,7 +125,7 @@ app.post("/api/reconnect", (req, res) => {
 app.get("/api/config", (req, res) => res.json(botConfig));
 
 // Update config
-app.put("/api/config", (req, res) => {
+app.put("/api/config", async (req, res) => {
   const { leverage, riskPerTrade, stopLossPct, takeProfitPct, maxOpenTrades } =
     req.body;
   if (leverage !== undefined && (leverage < 1 || leverage > 125))
@@ -141,9 +148,13 @@ app.put("/api/config", (req, res) => {
       .json({ error: "maxOpenTrades deve ser entre 1 e 10" });
 
   botConfig = { ...botConfig, ...req.body };
-  if (bot) bot.updateConfig(botConfig);
-  broadcast({ type: "config", data: botConfig });
-  res.json({ ok: true, config: botConfig });
+  try {
+    if (bot) await bot.updateConfig(botConfig);
+    broadcast({ type: "config", data: botConfig });
+    res.json({ ok: true, config: botConfig });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Start bot
@@ -156,7 +167,7 @@ app.post("/api/bot/start", async (req, res) => {
           error:
             "Binance não conectada. Verifique o .env e reinicie o servidor.",
         });
-    if (!bot) bot = new TradingBot(binance, botConfig, broadcast);
+    if (!bot) bot = new TradingBot(binance, botConfig, broadcast, tradeStore);
     const result = await bot.start();
     res.json(result);
   } catch (e) {
@@ -203,7 +214,13 @@ app.get("/api/market/:symbol", async (req, res) => {
   try {
     if (!binance) return res.status(400).json({ error: "Não conectado" });
     const { symbol } = req.params;
-    if (bot && bot.getCandles().length > 0) {
+    const interval = req.query.interval || "15m";
+    const canUseBotCache =
+      !!bot &&
+      bot.getCandles().length > 0 &&
+      symbol === botConfig.symbol &&
+      interval === botConfig.timeframe;
+    if (canUseBotCache) {
       const candles = bot.getCandles();
       const lastClose = candles[candles.length - 1]?.close || 0;
       return res.json({
@@ -214,7 +231,7 @@ app.get("/api/market/:symbol", async (req, res) => {
     }
     const [ticker, candles] = await Promise.all([
       binance.getTicker(symbol),
-      binance.getKlines(symbol, req.query.interval || "15m", 100),
+      binance.getKlines(symbol, interval, 100),
     ]);
     res.json({ ticker, candles, markPrice: { markPrice: ticker.lastPrice } });
   } catch (e) {
@@ -239,7 +256,7 @@ app.get("/api/signal/:symbol", async (req, res) => {
     const candles = await binance.getKlines(
       req.params.symbol,
       req.query.interval || "15m",
-      200,
+      250,
     );
     const signal = strategy.getSignal(candles);
     res.json({
@@ -273,11 +290,29 @@ app.post("/api/positions/close-all", async (req, res) => {
   }
 });
 
+// Close a single position
+app.post("/api/positions/close", async (req, res) => {
+  try {
+    if (!binance) return res.status(400).json({ error: "Não conectado" });
+    if (!bot) bot = new TradingBot(binance, botConfig, broadcast, tradeStore);
+    const { symbol, side, size } = req.body || {};
+    if (!symbol || !side || !size) {
+      return res
+        .status(400)
+        .json({ error: "symbol, side e size são obrigatórios" });
+    }
+    await bot.closePosition(symbol, side, parseFloat(size));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.response?.data?.msg || e.message });
+  }
+});
+
 // Manual order
 app.post("/api/order", async (req, res) => {
   try {
     if (!binance) return res.status(400).json({ error: "Não conectado" });
-    if (!bot) bot = new TradingBot(binance, botConfig, broadcast);
+    if (!bot) bot = new TradingBot(binance, botConfig, broadcast, tradeStore);
     await bot.placeManualOrder(req.body);
     res.json({ ok: true });
   } catch (e) {

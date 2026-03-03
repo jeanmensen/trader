@@ -23,7 +23,7 @@ class BinanceClient {
     this.http = axios.create({
       baseURL: this.baseUrl,
       headers: { "X-MBX-APIKEY": this.apiKey },
-      timeout: 10000,
+      timeout: 15000,
     });
 
     // Rate limit: no máximo 1 req REST a cada 500ms
@@ -31,6 +31,9 @@ class BinanceClient {
     this._lastCall = 0;
     this._minDelay = 500;
     this._timeOffset = 0; // diferença entre relógio local e servidor Binance
+    this._restBlockedUntil = 0;
+    this._restBlockReason = "";
+    this._recvWindow = parseInt(process.env.BINANCE_RECV_WINDOW || "10000", 10);
   }
 
   // ── Sincronizar relógio com servidor Binance (resolve erro -1021) ──────────
@@ -48,20 +51,71 @@ class BinanceClient {
   // ── Rate-limited REST ──────────────────────────────────────────────────────
   async _request(fn) {
     const now = Date.now();
-    const wait = Math.max(0, this._minDelay - (now - this._lastCall));
+    if (now < this._restBlockedUntil) {
+      const waitMs = this._restBlockedUntil - now;
+      const err = new Error(
+        `REST temporariamente bloqueado por ${Math.ceil(waitMs / 1000)}s (${this._restBlockReason || "IP ban/rate limit"})`,
+      );
+      err.response = {
+        status: 418,
+        data: {
+          msg: this._restBlockReason || "REST blocked by local circuit breaker",
+        },
+      };
+      throw err;
+    }
+
+    const nowAfterBlockCheck = Date.now();
+    const wait = Math.max(0, this._minDelay - (nowAfterBlockCheck - this._lastCall));
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     this._lastCall = Date.now();
-    return fn();
+    try {
+      return await fn();
+    } catch (e) {
+      const status = e.response?.status;
+      if (status === 418 || status === 429) {
+        const msg = e.response?.data?.msg || e.message || "";
+        const match = msg.match(/banned until (\d+)/i);
+        const banTs = match ? parseInt(match[1], 10) : 0;
+        const until = banTs
+          ? Math.max(banTs + 30_000, Date.now() + 11 * 60 * 1000)
+          : Date.now() + 11 * 60 * 1000;
+        this._restBlockedUntil = Math.max(this._restBlockedUntil, until);
+        this._restBlockReason = msg || "IP ban/rate limit";
+        logger.warn(
+          `REST circuit breaker ativo por ${Math.ceil((this._restBlockedUntil - Date.now()) / 60000)} min`,
+        );
+      }
+      throw e;
+    }
   }
 
   sign(params) {
     const timestamp = Date.now() + this._timeOffset;
-    const query = new URLSearchParams({ ...params, timestamp }).toString();
+    const query = new URLSearchParams({
+      recvWindow: this._recvWindow,
+      ...params,
+      timestamp,
+    }).toString();
     const sig = crypto
       .createHmac("sha256", this.apiSecret)
       .update(query)
       .digest("hex");
     return `${query}&signature=${sig}`;
+  }
+
+  _buildClientOrderId(prefix = "bot") {
+    const rnd = crypto.randomBytes(6).toString("hex");
+    return `${prefix}_${Date.now()}_${rnd}`.slice(0, 36);
+  }
+
+  _isExecutionStatusUnknown(err) {
+    const msg = (err?.response?.data?.msg || err?.message || "").toLowerCase();
+    return (
+      msg.includes("execution status unknown") ||
+      msg.includes("send status unknown") ||
+      err?.code === "ECONNABORTED"
+    );
   }
 
   // ── Account (REST — chamado manualmente, não em loop) ─────────────────────
@@ -150,28 +204,76 @@ class BinanceClient {
   }
 
   async placeMarketOrder(symbol, side, quantity) {
-    return this.placeOrder({ symbol, side, type: "MARKET", quantity });
+    const clientOrderId = this._buildClientOrderId("mkt");
+    try {
+      return await this.placeOrder({
+        symbol,
+        side,
+        type: "MARKET",
+        quantity,
+        newClientOrderId: clientOrderId,
+      });
+    } catch (e) {
+      if (!this._isExecutionStatusUnknown(e)) throw e;
+
+      logger.warn(
+        `Order timeout/unknown (${symbol} ${side} ${quantity}). Reconciliando por clientOrderId=${clientOrderId}`,
+      );
+
+      // Binance pode aceitar a ordem mas atrasar a resposta.
+      for (let i = 0; i < 4; i++) {
+        await new Promise((r) => setTimeout(r, 1200));
+        try {
+          const order = await this.getOrder(symbol, {
+            origClientOrderId: clientOrderId,
+          });
+          if (order?.orderId) {
+            logger.warn(
+              `Ordem reconciliada com sucesso (orderId=${order.orderId}, status=${order.status})`,
+            );
+            return order;
+          }
+        } catch (reconcileErr) {
+          const msg = reconcileErr?.response?.data?.msg || reconcileErr?.message || "";
+          if (!/order does not exist/i.test(msg)) throw reconcileErr;
+        }
+      }
+      throw e;
+    }
   }
 
-  async placeStopOrder(symbol, side, quantity, stopPrice) {
+  async getOrder(symbol, { orderId, origClientOrderId } = {}) {
+    return this._request(async () => {
+      const params = { symbol };
+      if (orderId !== undefined) params.orderId = orderId;
+      if (origClientOrderId) params.origClientOrderId = origClientOrderId;
+      const qs = this.sign(params);
+      const res = await this.http.get(`/fapi/v1/order?${qs}`);
+      return res.data;
+    });
+  }
+
+  async placeStopOrder(symbol, side, stopPrice) {
     return this.placeOrder({
       symbol,
       side,
       type: "STOP_MARKET",
-      quantity,
       stopPrice,
-      closePosition: false,
+      closePosition: true,
+      workingType: "MARK_PRICE",
+      priceProtect: true,
     });
   }
 
-  async placeTakeProfitOrder(symbol, side, quantity, stopPrice) {
+  async placeTakeProfitOrder(symbol, side, stopPrice) {
     return this.placeOrder({
       symbol,
       side,
       type: "TAKE_PROFIT_MARKET",
-      quantity,
       stopPrice,
-      closePosition: false,
+      closePosition: true,
+      workingType: "MARK_PRICE",
+      priceProtect: true,
     });
   }
 
@@ -188,6 +290,14 @@ class BinanceClient {
       const qs = this.sign({ symbol, limit });
       const res = await this.http.get(`/fapi/v1/allOrders?${qs}`);
       return res.data.slice(-limit);
+    });
+  }
+
+  async getIncomeHistory(symbol, incomeType = "REALIZED_PNL", limit = 100) {
+    return this._request(async () => {
+      const qs = this.sign({ symbol, incomeType, limit });
+      const res = await this.http.get(`/fapi/v1/income?${qs}`);
+      return res.data;
     });
   }
 

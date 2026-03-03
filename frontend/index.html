@@ -1156,7 +1156,7 @@
             <div class="stat-box">
               <div class="stat-label">SCORE SINAL</div>
               <div class="stat-value c-yellow" id="s-score">—</div>
-              <div class="stat-sub">Mín: 7/12</div>
+              <div class="stat-sub">Mín: 6/10</div>
             </div>
           </div>
 
@@ -1214,13 +1214,13 @@
                   "
                   >TIMEFRAME:</span
                 >
-                <button class="tf-btn" onclick="changeTF('5m')">5M</button>
-                <button class="tf-btn active" onclick="changeTF('15m')">
+                <button class="tf-btn" data-tf="5m" onclick="changeTF('5m', this)">5M</button>
+                <button class="tf-btn active" data-tf="15m" onclick="changeTF('15m', this)">
                   15M
                 </button>
-                <button class="tf-btn" onclick="changeTF('30m')">30M</button>
-                <button class="tf-btn" onclick="changeTF('1h')">1H</button>
-                <button class="tf-btn" onclick="changeTF('4h')">4H</button>
+                <button class="tf-btn" data-tf="30m" onclick="changeTF('30m', this)">30M</button>
+                <button class="tf-btn" data-tf="1h" onclick="changeTF('1h', this)">1H</button>
+                <button class="tf-btn" data-tf="4h" onclick="changeTF('4h', this)">4H</button>
                 <button
                   class="btn btn-primary btn-sm"
                   onclick="refreshChart()"
@@ -1337,11 +1337,11 @@
                   <div class="ind-val" id="ind-atr">—</div>
                 </div>
                 <div class="ind-cell">
-                  <div class="ind-name">MACD Hist</div>
+                  <div class="ind-name">HTF Bias</div>
                   <div class="ind-val" id="ind-macd">—</div>
                 </div>
                 <div class="ind-cell">
-                  <div class="ind-name">MACD Signal</div>
+                  <div class="ind-name">BB Expanding</div>
                   <div class="ind-val" id="ind-macds">—</div>
                 </div>
                 <div class="ind-cell">
@@ -1548,7 +1548,16 @@
       let currentTF = "15m";
       let currentSymbol = "BTCUSDT";
       let candles = [];
+      let sessionPnl = 0;
+      let accountBalance = 0;
       let _chartDirty = false; // flag: dados mudaram, gráfico precisa atualizar
+
+      function updateSessionPnlPct() {
+        const pctEl = document.getElementById("s-pnl-pct");
+        const pct = accountBalance > 0 ? (sessionPnl / accountBalance) * 100 : 0;
+        pctEl.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%";
+        pctEl.className = "stat-sub " + (pct >= 0 ? "c-green" : "c-red");
+      }
 
       // ══ CLOCK + RENDER LOOP ════════════════════════════════════════════════════
       // Um único setInterval controla o relógio E o render do gráfico.
@@ -1592,6 +1601,9 @@
                   : "var(--red)";
               }
             }
+            break;
+          case "config":
+            applyConfig(msg.data || {});
             break;
           case "bot_status":
             setBotRunning(msg.data.running);
@@ -1713,19 +1725,26 @@
           maxOpenTrades: parseInt(document.getElementById("cfg-max").value),
         };
         currentSymbol = cfg.symbol;
-        await fetch(`${API}/config`, {
+        currentTF = cfg.timeframe;
+        setTFButtonActive(currentTF);
+        const r = await fetch(`${API}/config`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(cfg),
         });
+        if (!r.ok) {
+          const data = await r.json();
+          throw data.error || "Erro ao salvar config";
+        }
       }
 
       // ══ ACCOUNT ════════════════════════════════════════════════════════════════
       async function refreshAccount() {
         try {
           const data = await get("/account");
+          accountBalance = Number(data.balance) || 0;
           document.getElementById("acc-balance").textContent =
-            "$" + data.balance.toFixed(2);
+            "$" + accountBalance.toFixed(2);
           document.getElementById("acc-avail").textContent =
             "$" + data.availableBalance.toFixed(2);
           const pnl = data.unrealizedPnl || 0;
@@ -1737,6 +1756,7 @@
           document.getElementById("s-open").textContent =
             data.positions?.length || 0;
           renderPositions(data.positions || []);
+          updateSessionPnlPct();
         } catch (e) {}
       }
 
@@ -1788,8 +1808,9 @@
         document.getElementById("sig-tp").textContent = sig.takeProfit
           ? "$" + sig.takeProfit.toFixed(2)
           : "—";
+        const maxScore = sig.maxScore || 10;
         document.getElementById("s-score").textContent = sig.score
-          ? `${sig.score}/12`
+          ? `${sig.score}/${maxScore}`
           : "—";
 
         // R:R
@@ -1832,10 +1853,13 @@
           set("ind-bbm", i.bbMiddle);
           set("ind-bbl", i.bbLower);
           set("ind-atr", i.atr);
-          set("ind-macd", i.macdHistogram, 4);
-          set("ind-macds", i.macdSignal, 4);
+          set("ind-macd", i.htfBias);
+          set("ind-macds", i.bbExpanding ? "YES" : "NO");
           set("ind-vol", i.volRatio, 2);
-          set("ind-sl-score", sig.longScore ? `${sig.longScore}/12` : "—");
+          set(
+            "ind-sl-score",
+            sig.longScore ? `${sig.longScore}/${maxScore}` : "—",
+          );
         }
       }
 
@@ -1844,6 +1868,7 @@
         if (!connected) return;
         try {
           const sym = document.getElementById("cfg-symbol").value;
+          currentSymbol = sym;
           const data = await get(
             `/market/${sym}?interval=${currentTF}&limit=100`,
           );
@@ -1858,6 +1883,8 @@
 
       // Atualiza gráfico com novo candle recebido via WebSocket (zero REST)
       function updateChartCandle(candle) {
+        if (candle.symbol && candle.symbol !== currentSymbol) return;
+        if (candle.interval && candle.interval !== currentTF) return;
         if (!candles.length) return;
         const last = candles[candles.length - 1];
         if (last && last.openTime === candle.openTime) {
@@ -2030,13 +2057,44 @@
         return result;
       }
 
-      function changeTF(tf) {
+      function changeTF(tf, btn) {
         currentTF = tf;
+        setTFButtonActive(tf, btn);
+        const tfSelect = document.getElementById("cfg-timeframe");
+        if (tfSelect && tfSelect.value !== tf) tfSelect.value = tf;
+        refreshChart();
+      }
+
+      function setTFButtonActive(tf, btn = null) {
         document
           .querySelectorAll(".tf-btn")
-          .forEach((b) => b.classList.remove("active"));
-        event.target.classList.add("active");
-        refreshChart();
+          .forEach((b) => b.classList.toggle("active", b.dataset.tf === tf));
+        if (btn) btn.classList.add("active");
+      }
+
+      function applyConfig(cfg) {
+        if (!cfg) return;
+        if (cfg.symbol) {
+          const symEl = document.getElementById("cfg-symbol");
+          if (symEl) symEl.value = cfg.symbol;
+          currentSymbol = cfg.symbol;
+        }
+        if (cfg.timeframe) {
+          const tfEl = document.getElementById("cfg-timeframe");
+          if (tfEl) tfEl.value = cfg.timeframe;
+          currentTF = cfg.timeframe;
+          setTFButtonActive(currentTF);
+        }
+        if (cfg.leverage !== undefined)
+          document.getElementById("cfg-leverage").value = cfg.leverage;
+        if (cfg.riskPerTrade !== undefined)
+          document.getElementById("cfg-risk").value = cfg.riskPerTrade;
+        if (cfg.stopLossPct !== undefined)
+          document.getElementById("cfg-sl").value = cfg.stopLossPct;
+        if (cfg.takeProfitPct !== undefined)
+          document.getElementById("cfg-tp").value = cfg.takeProfitPct;
+        if (cfg.maxOpenTrades !== undefined)
+          document.getElementById("cfg-max").value = cfg.maxOpenTrades;
       }
 
       // ══ TABLES ═════════════════════════════════════════════════════════════════
@@ -2085,7 +2143,7 @@
     <td class="c-red">$${t.stopLoss?.toFixed(2) || "—"}</td>
     <td class="c-green">$${t.takeProfit?.toFixed(2) || "—"}</td>
     <td><span class="badge ${t.status === "OPEN" ? "badge-open" : "badge-closed"}">${t.status}</span></td>
-    <td class="c-yellow">${t.score}/12</td>
+    <td class="c-yellow">${t.score}/${t.maxScore || 10}</td>
   </tr>`,
           )
           .join("");
@@ -2094,20 +2152,25 @@
       function updateStats(state) {
         if (!state.stats) return;
         const { totalTrades, wins, losses, pnl } = state.stats;
-        const wr =
-          totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(0) : 0;
-        document.getElementById("s-total").textContent = totalTrades;
+        const closedTrades = (wins || 0) + (losses || 0);
+        const wr = closedTrades > 0 ? ((wins / closedTrades) * 100).toFixed(0) : 0;
+        document.getElementById("s-total").textContent = Math.max(
+          Number(totalTrades) || 0,
+          closedTrades,
+        );
         document.getElementById("s-wr").textContent = wr + "%";
         document.getElementById("s-wl").textContent = `${wins}W / ${losses}L`;
         const pnlEl = document.getElementById("s-pnl");
-        pnlEl.textContent = (pnl >= 0 ? "+" : "") + "$" + (pnl || 0).toFixed(2);
-        pnlEl.className = "stat-value " + (pnl >= 0 ? "c-green" : "c-red");
+        sessionPnl = Number(pnl) || 0;
+        pnlEl.textContent = (sessionPnl >= 0 ? "+" : "") + "$" + sessionPnl.toFixed(2);
+        pnlEl.className = "stat-value " + (sessionPnl >= 0 ? "c-green" : "c-red");
+        updateSessionPnlPct();
       }
 
       async function closePosition(symbol, side, size) {
         if (!confirm(`Fechar posição ${side} ${symbol}?`)) return;
         try {
-          await post("/positions/close-all");
+          await post("/positions/close", { symbol, side, size });
           toast("Posição fechada", "success");
           refreshAccount();
         } catch (e) {
@@ -2219,6 +2282,13 @@
       // Gráfico: atualizado pelo WebSocket (evento 'candle'), não por polling REST
 
       // ══ INIT ═══════════════════════════════════════════════════════════════════
+      document
+        .getElementById("cfg-timeframe")
+        .addEventListener("change", (e) => changeTF(e.target.value));
+      fetch("/api/config")
+        .then((r) => r.json())
+        .then((cfg) => applyConfig(cfg))
+        .catch(() => {});
       connectWS();
       addLog("NEXUS TRADE v1.0 inicializado", "info");
       addLog("Credenciais carregadas do .env — aguardando conexão...", "info");
@@ -2252,3 +2322,5 @@
     </script>
   </body>
 </html>
+
+
