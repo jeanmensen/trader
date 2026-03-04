@@ -1088,6 +1088,14 @@
                   <input type="number" id="cfg-max" value="1" min="1" max="5" />
                 </div>
               </div>
+              <div class="toggle-row" style="margin-top: 8px">
+                <span class="toggle-label" style="color: var(--yellow)">⚠️ IGNORAR LIMITE DIÁRIO</span>
+                <label class="toggle">
+                  <input type="checkbox" id="cfg-bypass-daily" />
+                  <span class="toggle-track"></span>
+                  <span class="toggle-thumb"></span>
+                </label>
+              </div>
               <div class="btn-row">
                 <button
                   class="btn btn-success"
@@ -1772,6 +1780,7 @@
           stopLossPct: parseFloat(document.getElementById("cfg-sl").value),
           takeProfitPct: parseFloat(document.getElementById("cfg-tp").value),
           maxOpenTrades: parseInt(document.getElementById("cfg-max").value),
+          bypassDailyLimit: !!document.getElementById("cfg-bypass-daily")?.checked,
         };
         let scanSymbols = parseSymbolList(rawScan);
         if (!scanSymbols.length) scanSymbols = defaultSymbolListFromUI();
@@ -2151,6 +2160,10 @@
           document.getElementById("cfg-tp").value = cfg.takeProfitPct;
         if (cfg.maxOpenTrades !== undefined)
           document.getElementById("cfg-max").value = cfg.maxOpenTrades;
+        if (cfg.bypassDailyLimit !== undefined) {
+          const el = document.getElementById("cfg-bypass-daily");
+          if (el) el.checked = !!cfg.bypassDailyLimit;
+        }
         if (cfg.scanSymbols !== undefined) {
           const scanSymbols = Array.isArray(cfg.scanSymbols)
             ? cfg.scanSymbols

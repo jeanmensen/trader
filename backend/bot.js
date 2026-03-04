@@ -331,12 +331,18 @@ class TradingBot {
         todayStats.wins + todayStats.losses,
       );
 
-      if (todayPnl < -dailyLimit) {
+      if (!this.config.bypassDailyLimit && todayPnl < -dailyLimit) {
         this.log(
           `⛔ Limite diário de perda (3%) atingido. PnL: $${todayPnl.toFixed(2)} | Limite: -$${dailyLimit.toFixed(2)}.`,
           "warn",
         );
         return false;
+      }
+      if (this.config.bypassDailyLimit && todayPnl < -dailyLimit) {
+        this.log(
+          `⚠️ [TESTE] Limite diário ignorado. PnL: $${todayPnl.toFixed(2)} | Limite seria: -$${dailyLimit.toFixed(2)}.`,
+          "warn",
+        );
       }
     } catch (e) {
       const code = e.response?.status;

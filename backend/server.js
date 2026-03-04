@@ -54,6 +54,7 @@ let botConfig = {
   takeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || "2.0"),
   maxOpenTrades: parseInt(process.env.MAX_OPEN_TRADES || "1"),
   testnet: process.env.USE_TESTNET !== "false",
+  bypassDailyLimit: false,
   scanSymbols: parseSymbolsList(process.env.SCAN_SYMBOLS, [
     process.env.DEFAULT_SYMBOL || "BTCUSDT",
     "ETHUSDT",
