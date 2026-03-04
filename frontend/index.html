@@ -1022,6 +1022,23 @@
                   <option value="1h" selected>1 Hora (Recomendado)</option>
                 </select>
               </div>
+              <div class="toggle-row">
+                <span class="toggle-label">AUTO MELHOR MOEDA</span>
+                <label class="toggle">
+                  <input type="checkbox" id="cfg-auto-symbol" checked />
+                  <span class="toggle-track"></span>
+                  <span class="toggle-thumb"></span>
+                </label>
+              </div>
+              <div class="form-group">
+                <label>WATCHLIST (SCAN_SYMBOLS)</label>
+                <input
+                  type="text"
+                  id="cfg-scan-symbols"
+                  value="BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT"
+                  placeholder="BTCUSDT,ETHUSDT,SOLUSDT..."
+                />
+              </div>
               <div class="config-grid">
                 <div class="form-group">
                   <label>ALAVANCAGEM</label>
@@ -1285,15 +1302,17 @@
                     <th>LADO</th>
                     <th>TAMANHO</th>
                     <th>ENTRADA</th>
+                    <th>SAÍDA</th>
                     <th>SL</th>
                     <th>TP</th>
+                    <th>P/L</th>
                     <th>STATUS</th>
                     <th>SCORE</th>
                   </tr>
                 </thead>
                 <tbody id="history-body">
                   <tr class="empty-row">
-                    <td colspan="9">// NENHUMA OPERAÇÃO NESTA SESSÃO //</td>
+                    <td colspan="11">// NENHUMA OPERAÇÃO NESTA SESSÃO //</td>
                   </tr>
                 </tbody>
               </table>
@@ -1338,11 +1357,11 @@
                 </div>
                 <div class="ind-cell">
                   <div class="ind-name">HTF Bias</div>
-                  <div class="ind-val" id="ind-macd">—</div>
+                  <div class="ind-val" id="ind-htfbias">—</div>
                 </div>
                 <div class="ind-cell">
                   <div class="ind-name">BB Expanding</div>
-                  <div class="ind-val" id="ind-macds">—</div>
+                  <div class="ind-val" id="ind-bbexp">—</div>
                 </div>
                 <div class="ind-cell">
                   <div class="ind-name">Volume Ratio</div>
@@ -1629,7 +1648,11 @@
             }
             break;
           case "tick":
-            if (msg.data.price) {
+            if (
+              msg.data.price &&
+              (!msg.data.symbol ||
+                msg.data.symbol.toUpperCase() === currentSymbol.toUpperCase())
+            ) {
               const p = msg.data.price;
               document.getElementById("live-price").textContent =
                 "$" + p.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
@@ -1714,7 +1737,33 @@
         document.getElementById("btn-stop").disabled = !v;
       }
 
+      function parseSymbolList(raw) {
+        const unique = new Set(
+          String(raw || "")
+            .split(",")
+            .map((s) => s.trim().toUpperCase())
+            .filter(Boolean),
+        );
+        return [...unique];
+      }
+
+      function defaultSymbolListFromUI() {
+        const symSelect = document.getElementById("cfg-symbol");
+        if (!symSelect) return [];
+        return [...new Set([...symSelect.options].map((o) => o.value))];
+      }
+
+      function toggleAutoSymbolMode() {
+        const autoEl = document.getElementById("cfg-auto-symbol");
+        const scanEl = document.getElementById("cfg-scan-symbols");
+        if (!autoEl || !scanEl) return;
+        scanEl.disabled = !autoEl.checked;
+        scanEl.style.opacity = autoEl.checked ? "1" : "0.5";
+      }
+
       async function saveConfig() {
+        const autoSymbol = !!document.getElementById("cfg-auto-symbol")?.checked;
+        const rawScan = document.getElementById("cfg-scan-symbols")?.value || "";
         const cfg = {
           symbol: document.getElementById("cfg-symbol").value,
           timeframe: document.getElementById("cfg-timeframe").value,
@@ -1724,6 +1773,12 @@
           takeProfitPct: parseFloat(document.getElementById("cfg-tp").value),
           maxOpenTrades: parseInt(document.getElementById("cfg-max").value),
         };
+        let scanSymbols = parseSymbolList(rawScan);
+        if (!scanSymbols.length) scanSymbols = defaultSymbolListFromUI();
+        cfg.scanSymbols = autoSymbol ? scanSymbols : [cfg.symbol];
+        if (!cfg.scanSymbols.includes(cfg.symbol)) cfg.scanSymbols.unshift(cfg.symbol);
+        const scanEl = document.getElementById("cfg-scan-symbols");
+        if (scanEl) scanEl.value = cfg.scanSymbols.join(",");
         currentSymbol = cfg.symbol;
         currentTF = cfg.timeframe;
         setTFButtonActive(currentTF);
@@ -1853,12 +1908,13 @@
           set("ind-bbm", i.bbMiddle);
           set("ind-bbl", i.bbLower);
           set("ind-atr", i.atr);
-          set("ind-macd", i.htfBias);
-          set("ind-macds", i.bbExpanding ? "YES" : "NO");
+          set("ind-htfbias", i.htfBias);
+          set("ind-bbexp", i.bbExpanding ? "YES" : "NO");
           set("ind-vol", i.volRatio, 2);
+          const activeScore = sig.score ?? sig.longScore;
           set(
             "ind-sl-score",
-            sig.longScore ? `${sig.longScore}/${maxScore}` : "—",
+            activeScore != null ? `${activeScore}/${maxScore}` : "—",
           );
         }
       }
@@ -1893,7 +1949,7 @@
           candles.push(candle);
           if (candles.length > 200) candles.shift();
         }
-        renderChart(candles);
+        _chartDirty = true; // renderizado pelo setInterval (máx 1x/segundo)
       }
 
       function renderChart(c) {
@@ -2095,6 +2151,19 @@
           document.getElementById("cfg-tp").value = cfg.takeProfitPct;
         if (cfg.maxOpenTrades !== undefined)
           document.getElementById("cfg-max").value = cfg.maxOpenTrades;
+        if (cfg.scanSymbols !== undefined) {
+          const scanSymbols = Array.isArray(cfg.scanSymbols)
+            ? cfg.scanSymbols
+            : parseSymbolList(cfg.scanSymbols);
+          const auto =
+            scanSymbols.length > 1 ||
+            (scanSymbols.length === 1 && scanSymbols[0] !== cfg.symbol);
+          const autoEl = document.getElementById("cfg-auto-symbol");
+          const scanEl = document.getElementById("cfg-scan-symbols");
+          if (autoEl) autoEl.checked = auto;
+          if (scanEl) scanEl.value = scanSymbols.join(",");
+          toggleAutoSymbolMode();
+        }
       }
 
       // ══ TABLES ═════════════════════════════════════════════════════════════════
@@ -2117,7 +2186,7 @@
       <td>$${(p.entryPrice || parseFloat(p.entryPrice || 0)).toFixed(2)}</td>
       <td>$${(p.markPrice || parseFloat(p.markPrice || 0)).toFixed(2)}</td>
       <td class="${pnlClass}">${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}</td>
-      <td class="${pnlClass}">${p.pnlPct ? p.pnlPct.toFixed(2) : "—"}%</td>
+      <td class="${pnlClass}">${Number.isFinite(p.pnlPct) ? p.pnlPct.toFixed(2) : "—"}%</td>
       <td>${p.leverage || "—"}x</td>
       <td><button class="btn btn-danger btn-sm" onclick="closePosition('${p.symbol}','${p.side}',${p.size})">FECHAR</button></td>
     </tr>`;
@@ -2129,39 +2198,68 @@
         const tbody = document.getElementById("history-body");
         if (!trades.length) {
           tbody.innerHTML =
-            '<tr class="empty-row"><td colspan="9">// NENHUMA OPERAÇÃO NESTA SESSÃO //</td></tr>';
+            '<tr class="empty-row"><td colspan="11">// NENHUMA OPERAÇÃO NESTA SESSÃO //</td></tr>';
           return;
         }
         tbody.innerHTML = trades
-          .map(
-            (t) => `<tr>
+          .map((t) => {
+            const entry = Number(t.entryPrice);
+            const close = Number(t.closePrice);
+            const size = Number(t.size);
+            const hasEntry = Number.isFinite(entry);
+            const hasClose = Number.isFinite(close);
+            const hasSize = Number.isFinite(size);
+            const fallbackPnl =
+              hasEntry && hasClose && hasSize
+                ? t.side === "SHORT"
+                  ? (entry - close) * size
+                  : (close - entry) * size
+                : null;
+            const pnl = Number.isFinite(Number(t.pnl)) ? Number(t.pnl) : fallbackPnl;
+            const pnlClass =
+              pnl === null ? "c-yellow" : pnl >= 0 ? "c-green" : "c-red";
+            const pnlText =
+              pnl === null ? "—" : `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`;
+            return `<tr>
     <td>${new Date(t.openTime).toLocaleTimeString("pt-BR")}</td>
     <td>${t.symbol}</td>
     <td><span class="badge ${t.side === "LONG" ? "badge-long" : "badge-short"}">${t.side}</span></td>
     <td>${t.size}</td>
     <td>$${t.entryPrice?.toFixed(2) || "—"}</td>
+    <td>$${t.closePrice?.toFixed(2) || "—"}</td>
     <td class="c-red">$${t.stopLoss?.toFixed(2) || "—"}</td>
     <td class="c-green">$${t.takeProfit?.toFixed(2) || "—"}</td>
+    <td class="${pnlClass}">${pnlText}</td>
     <td><span class="badge ${t.status === "OPEN" ? "badge-open" : "badge-closed"}">${t.status}</span></td>
     <td class="c-yellow">${t.score}/${t.maxScore || 10}</td>
-  </tr>`,
-          )
+  </tr>`;
+          })
           .join("");
       }
 
       function updateStats(state) {
         if (!state.stats) return;
-        const { totalTrades, wins, losses, pnl } = state.stats;
-        const closedTrades = (wins || 0) + (losses || 0);
-        const wr = closedTrades > 0 ? ((wins / closedTrades) * 100).toFixed(0) : 0;
+        const { totalTrades } = state.stats;
+
+        // Deriva wins/losses/pnl direto do histórico — garante que batem com a tabela
+        const closed = (state.trades || []).filter((t) => t.status === "CLOSED");
+        const wins = closed.filter((t) => Number(t.pnl) > 0).length;
+        const losses = closed.filter((t) => Number(t.pnl) <= 0).length;
+        const pnlFromHistory = closed.reduce(
+          (sum, t) => sum + (Number.isFinite(Number(t.pnl)) ? Number(t.pnl) : 0),
+          0,
+        );
+
+        const closedCount = wins + losses;
+        const wr = closedCount > 0 ? ((wins / closedCount) * 100).toFixed(0) : 0;
         document.getElementById("s-total").textContent = Math.max(
           Number(totalTrades) || 0,
-          closedTrades,
+          closedCount,
         );
         document.getElementById("s-wr").textContent = wr + "%";
         document.getElementById("s-wl").textContent = `${wins}W / ${losses}L`;
         const pnlEl = document.getElementById("s-pnl");
-        sessionPnl = Number(pnl) || 0;
+        sessionPnl = pnlFromHistory;
         pnlEl.textContent = (sessionPnl >= 0 ? "+" : "") + "$" + sessionPnl.toFixed(2);
         pnlEl.className = "stat-value " + (sessionPnl >= 0 ? "c-green" : "c-red");
         updateSessionPnlPct();
@@ -2285,6 +2383,10 @@
       document
         .getElementById("cfg-timeframe")
         .addEventListener("change", (e) => changeTF(e.target.value));
+      document
+        .getElementById("cfg-auto-symbol")
+        .addEventListener("change", toggleAutoSymbolMode);
+      toggleAutoSymbolMode();
       fetch("/api/config")
         .then((r) => r.json())
         .then((cfg) => applyConfig(cfg))

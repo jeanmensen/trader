@@ -10,7 +10,9 @@ class TradingBot {
     this.config = config;
     this.broadcast = broadcastFn || (() => {});
     this.tradeStore = tradeStore;
+    this.config.scanSymbols = this._normalizeSymbolList(config.scanSymbols);
     this.strategy = new ConservativeStrategy(config);
+    this._symbolSetupDone = new Set();
 
     this.state = {
       running: false,
@@ -24,6 +26,7 @@ class TradingBot {
 
     // Cache de saldo — atualizado apenas quando necessário
     this._balanceCache = 0;
+    this._balanceTotalCache = 0;
     this._balanceFetchedAt = 0;
     this._balanceTTL = 60000; // 60s
 
@@ -46,6 +49,43 @@ class TradingBot {
     this._syntheticClosing = new Set();
   }
 
+  _normalizeSymbolList(input) {
+    const raw = Array.isArray(input)
+      ? input
+      : typeof input === "string"
+        ? input.split(",")
+        : [];
+    const unique = new Set();
+    for (const item of raw) {
+      const sym = String(item || "")
+        .trim()
+        .toUpperCase();
+      if (sym) unique.add(sym);
+    }
+    if (this.config.symbol) unique.add(String(this.config.symbol).toUpperCase());
+    return [...unique];
+  }
+
+  _getScanSymbols() {
+    const watchlist = this._normalizeSymbolList(this.config.scanSymbols);
+    if (!watchlist.length && this.config.symbol) {
+      return [String(this.config.symbol).toUpperCase()];
+    }
+    return watchlist;
+  }
+
+  _getTrackedSymbols() {
+    const set = new Set(this._getScanSymbols());
+    for (const t of this.state.trades) {
+      if (t?.status === "OPEN" && t.symbol) set.add(String(t.symbol).toUpperCase());
+    }
+    for (const p of this.state.positions) {
+      if (p?.symbol) set.add(String(p.symbol).toUpperCase());
+    }
+    for (const symbol of this._syntheticProtections.keys()) set.add(symbol);
+    return [...set];
+  }
+
   // ── Lifecycle ──────────────────────────────────────────────────────────────
   async start() {
     if (this.state.running) return { ok: false, msg: "Already running" };
@@ -64,14 +104,8 @@ class TradingBot {
     // Sincronizar relógio com Binance primeiro (evita erro -1021)
     await this.client.syncTime();
 
-    // Setup de alavancagem/margem (2 chamadas REST apenas no início)
-    try {
-      await this.client.setLeverage(this.config.symbol, this.config.leverage);
-      await this.client.setMarginType(this.config.symbol, "ISOLATED");
-      this.log(`✅ Alavancagem: ${this.config.leverage}x | Margem: ISOLATED`);
-    } catch (e) {
-      this.log(`⚠️ Setup: ${e.response?.data?.msg || e.message}`, "warn");
-    }
+    // Setup de alavancagem/margem do símbolo padrão
+    await this._ensureSymbolSetup(this.config.symbol);
 
     // Carregar histórico de candles via REST (1 única chamada)
     this.log(`📥 Carregando histórico de candles...`);
@@ -116,6 +150,9 @@ class TradingBot {
 
   // ── WebSocket Kline Stream ─────────────────────────────────────────────────
   _startKlineStream() {
+    if (typeof this.client.closeStreamsByPrefix === "function") {
+      this.client.closeStreamsByPrefix("kline_");
+    }
     const symbol = this.config.symbol;
     const interval = this.config.timeframe || "15m";
 
@@ -148,24 +185,30 @@ class TradingBot {
 
   // ── WebSocket Ticker Stream ────────────────────────────────────────────────
   _startTickerStream() {
-    this.client.subscribeTicker(this.config.symbol, (tick) => {
-      const price = parseFloat(tick.c);
-      this.broadcast({ type: "tick", data: { price, symbol: tick.s } });
-      this._checkSyntheticProtection(tick.s, price).catch((e) =>
-        this.log(`⚠️ Synthetic protection error: ${e.message}`, "warn"),
-      );
-    });
+    if (typeof this.client.closeStreamsByPrefix === "function") {
+      this.client.closeStreamsByPrefix("ticker_");
+    }
+    const symbols = this._getTrackedSymbols();
+    for (const symbol of symbols) {
+      this.client.subscribeTicker(symbol, (tick) => {
+        const price = parseFloat(tick.c);
+        this.broadcast({ type: "tick", data: { price, symbol: tick.s } });
+        this._checkSyntheticProtection(tick.s, price).catch((e) =>
+          this.log(`⚠️ Synthetic protection error: ${e.message}`, "warn"),
+        );
+      });
+    }
   }
 
   // ── Análise e Trading (chamado apenas no fechamento de vela) ──────────────
   async _analyzeAndTrade() {
     try {
-      const signal = this.strategy.getSignal(this.state.candles);
-      this.state.lastSignal = { ...signal, time: new Date().toISOString() };
+      const best = await this._findBestSignalOpportunity();
+      this.state.lastSignal = { ...best.signal, symbol: best.symbol, time: new Date().toISOString() };
       this.broadcast({ type: "signal", data: this.state.lastSignal });
 
-      if (signal.signal === "NONE") {
-        this.log(`ℹ️ Sem entrada: ${signal.reason || "sinal NONE"}`);
+      if (best.signal.signal === "NONE") {
+        this.log(`ℹ️ Sem entrada: ${best.signal.reason || "sinal NONE"}`);
         return;
       }
 
@@ -188,10 +231,71 @@ class TradingBot {
       const canTrade = await this.checkRiskLimits();
       if (!canTrade) return;
 
-      const executed = await this.executeSignal(signal);
+      const executed = await this.executeSignal(best.signal, best.symbol);
       if (executed) this._lastTradeAt = now;
     } catch (e) {
       this.log(`❌ Analyze error: ${e.message}`, "error");
+    }
+  }
+
+  async _findBestSignalOpportunity() {
+    const timeframe = this.config.timeframe || "15m";
+    const symbols = this._getScanSymbols();
+    let best = null;
+
+    for (const symbol of symbols) {
+      try {
+        let candles = [];
+        if (
+          symbol === String(this.config.symbol).toUpperCase() &&
+          Array.isArray(this.state.candles) &&
+          this.state.candles.length >= 210
+        ) {
+          candles = this.state.candles;
+        } else {
+          candles = await this.client.getKlines(symbol, timeframe, 250);
+        }
+
+        const signal = this.strategy.getSignal(candles);
+        if (!signal || signal.signal === "NONE") continue;
+
+        if (
+          !best ||
+          (signal.score || 0) > (best.signal.score || 0) ||
+          ((signal.score || 0) === (best.signal.score || 0) &&
+            Number(signal.indicators?.volRatio || 0) >
+              Number(best.signal.indicators?.volRatio || 0))
+        ) {
+          best = { symbol, signal };
+        }
+      } catch (e) {
+        this.log(`⚠️ Scan ${symbol}: ${e.response?.data?.msg || e.message}`, "warn");
+      }
+    }
+
+    if (!best) {
+      return {
+        symbol: String(this.config.symbol).toUpperCase(),
+        signal: {
+          signal: "NONE",
+          reason: "Nenhum ativo da watchlist com score mínimo para entrada",
+        },
+      };
+    }
+
+    return best;
+  }
+
+  async _ensureSymbolSetup(symbol) {
+    const sym = String(symbol || "").toUpperCase();
+    if (!sym || this._symbolSetupDone.has(sym)) return;
+    try {
+      await this.client.setLeverage(sym, this.config.leverage);
+      await this.client.setMarginType(sym, "ISOLATED");
+      this._symbolSetupDone.add(sym);
+      this.log(`✅ Setup ${sym}: ${this.config.leverage}x | ISOLATED`);
+    } catch (e) {
+      this.log(`⚠️ Setup ${sym}: ${e.response?.data?.msg || e.message}`, "warn");
     }
   }
 
@@ -214,7 +318,9 @@ class TradingBot {
 
     try {
       const balance = await this.getCachedBalance();
-      const dailyLimit = balance * 0.03;
+      const totalBalance = await this.getCachedTotalBalance();
+      const dailyBase = totalBalance > 0 ? totalBalance : balance;
+      const dailyLimit = dailyBase * 0.03;
       const todayStats = await this.getTodayRealizedStats();
       const todayPnl = todayStats.pnl;
       this.state.stats.pnl = todayStats.pnl;
@@ -227,7 +333,7 @@ class TradingBot {
 
       if (todayPnl < -dailyLimit) {
         this.log(
-          "⛔ Limite diário de perda (3%) atingido. Sem novas entradas.",
+          `⛔ Limite diário de perda (3%) atingido. PnL: $${todayPnl.toFixed(2)} | Limite: -$${dailyLimit.toFixed(2)}.`,
           "warn",
         );
         return false;
@@ -250,17 +356,28 @@ class TradingBot {
     if (now - this._todayPnlFetchedAt < this._todayPnlTTL)
       return this._todayStatsCache;
 
-    const incomes = await this.client.getIncomeHistory(
-      this.config.symbol,
-      "REALIZED_PNL",
-      200,
-    );
+    const symbols = this._getTrackedSymbols();
+    const incomes = [];
+    for (const symbol of symbols) {
+      try {
+        const rows = await this.client.getIncomeHistory(symbol, "REALIZED_PNL", 200);
+        incomes.push(...rows);
+      } catch (e) {
+        this.log(`⚠️ PnL ${symbol}: ${e.response?.data?.msg || e.message}`, "warn");
+      }
+    }
+
     const today = new Date().toISOString().slice(0, 10);
+    const seen = new Set();
     const todayIncomes = incomes
       .filter((i) => {
         if (!i?.time) return false;
         const d = new Date(i.time).toISOString().slice(0, 10);
-        return d === today;
+        if (d !== today) return false;
+        const key = `${i.tranId || ""}_${i.time}_${i.income}_${i.symbol || ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
       });
     const pnl = todayIncomes.reduce(
       (sum, i) => sum + parseFloat(i.income || 0),
@@ -279,17 +396,31 @@ class TradingBot {
   // ── Posições (REST — apenas a cada 5min, não em loop curto) ──────────────
   async syncPositions() {
     try {
-      const positions = await this.client.getPositions(this.config.symbol);
-      this.state.positions = positions.map((p) => ({
-        symbol: p.symbol,
-        side: parseFloat(p.positionAmt) > 0 ? "LONG" : "SHORT",
-        size: Math.abs(parseFloat(p.positionAmt)),
-        entryPrice: parseFloat(p.entryPrice),
-        markPrice: parseFloat(p.markPrice),
-        pnl: parseFloat(p.unRealizedProfit),
-        pnlPct: parseFloat(p.percentage || 0),
-        leverage: parseInt(p.leverage),
-      }));
+      const symbols = this._getTrackedSymbols();
+      const all = [];
+      for (const symbol of symbols) {
+        try {
+          const positions = await this.client.getPositions(symbol);
+          all.push(
+            ...positions.map((p) => ({
+              symbol: p.symbol,
+              side: parseFloat(p.positionAmt) > 0 ? "LONG" : "SHORT",
+              size: Math.abs(parseFloat(p.positionAmt)),
+              entryPrice: parseFloat(p.entryPrice),
+              markPrice: parseFloat(p.markPrice),
+              pnl: parseFloat(p.unRealizedProfit),
+              pnlPct: parseFloat(p.percentage || 0),
+              leverage: parseInt(p.leverage),
+            })),
+          );
+        } catch (e) {
+          this.log(
+            `⚠️ Sync ${symbol}: ${e.response?.data?.msg || e.message}`,
+            "warn",
+          );
+        }
+      }
+      this.state.positions = all;
       const openSymbols = new Set(this.state.positions.map((p) => p.symbol));
       for (const symbol of this._syntheticProtections.keys()) {
         if (!openSymbols.has(symbol)) this._syntheticProtections.delete(symbol);
@@ -303,17 +434,15 @@ class TradingBot {
       if (code === 418 || code === 429) {
         this._pauseOrders(e.response?.data?.msg || e.message);
       }
-      const detail = e.response?.data
-        ? JSON.stringify(e.response.data)
-        : e.message;
+      const detail = e.response?.data ? JSON.stringify(e.response.data) : e.message;
       this.log(`⚠️ Sync positions: ${detail}`, "warn");
     }
   }
 
   // ── Execução de Ordem ──────────────────────────────────────────────────────
-  async executeSignal(signal) {
+  async executeSignal(signal, targetSymbol = this.config.symbol) {
     try {
-      const { symbol } = this.config;
+      const symbol = String(targetSymbol || this.config.symbol).toUpperCase();
       const balance = await this.getCachedBalance();
       const size = this.calcPositionSize(balance, signal);
 
@@ -328,8 +457,12 @@ class TradingBot {
       this.log(
         `📊 Sinal: ${signal.signal} | Score: ${signal.score}/${signal.maxScore || 10} | Preço: $${signal.price}`,
       );
+      if (symbol !== String(this.config.symbol).toUpperCase()) {
+        this.log(`🎯 Melhor oportunidade detectada em ${symbol}`);
+      }
       this.log(`   Razões: ${signal.reasons.join(", ")}`);
 
+      await this._ensureSymbolSetup(symbol);
       const side = signal.signal === "LONG" ? "BUY" : "SELL";
       await this.client.placeMarketOrder(symbol, side, size);
       this.log(
@@ -462,8 +595,17 @@ class TradingBot {
     const balances = await this.client.getBalance();
     const usdt = balances.find((b) => b.asset === "USDT");
     this._balanceCache = usdt ? parseFloat(usdt.availableBalance) : 0;
+    this._balanceTotalCache = usdt ? parseFloat(usdt.balance) : this._balanceCache;
     this._balanceFetchedAt = now;
     return this._balanceCache;
+  }
+
+  async getCachedTotalBalance() {
+    const now = Date.now();
+    if (now - this._balanceFetchedAt < this._balanceTTL)
+      return this._balanceTotalCache || this._balanceCache;
+    await this.getCachedBalance();
+    return this._balanceTotalCache || this._balanceCache;
   }
 
   // ── Ordem Manual ───────────────────────────────────────────────────────────
@@ -608,15 +750,19 @@ class TradingBot {
   }
 
   async closeAllPositions() {
+    const cancelSymbols = new Set();
     for (const pos of this.state.positions) {
       const exitPrice = Number.isFinite(pos.markPrice) ? pos.markPrice : null;
       await this.client.closePosition(pos.symbol, pos.side, pos.size);
       await this._markTradeClosed(pos.symbol, pos.side, exitPrice, "MANUAL_CLOSE_ALL");
       this.log(`🔒 Posição fechada: ${pos.side} ${pos.symbol}`);
+      cancelSymbols.add(pos.symbol);
       this._syntheticProtections.delete(pos.symbol);
       this._syntheticClosing.delete(pos.symbol);
     }
-    await this.client.cancelAllOrders(this.config.symbol);
+    for (const symbol of cancelSymbols) {
+      await this.client.cancelAllOrders(symbol);
+    }
     await this.syncPositions();
     this._broadcastState();
   }
@@ -731,11 +877,19 @@ class TradingBot {
   async updateConfig(cfg) {
     const prevSymbol = this.config.symbol;
     const prevTimeframe = this.config.timeframe;
+    const prevLeverage = this.config.leverage;
+    const prevScan = this._normalizeSymbolList(this.config.scanSymbols).join(",");
     this.config = { ...this.config, ...cfg };
+    this.config.scanSymbols = this._normalizeSymbolList(this.config.scanSymbols);
+    const nextScan = this.config.scanSymbols.join(",");
     this.strategy = new ConservativeStrategy(this.config);
+    if (prevLeverage !== this.config.leverage) {
+      this._symbolSetupDone.clear();
+    }
 
     const symbolChanged = prevSymbol !== this.config.symbol;
     const timeframeChanged = prevTimeframe !== this.config.timeframe;
+    const scanChanged = prevScan !== nextScan;
     if (this.state.running && (symbolChanged || timeframeChanged)) {
       this.log(
         `🔄 Reiniciando streams (${prevSymbol} ${prevTimeframe} -> ${this.config.symbol} ${this.config.timeframe})`,
@@ -757,6 +911,10 @@ class TradingBot {
         await this.syncPositions();
       }
     }
+    if (this.state.running && scanChanged && !symbolChanged) {
+      this._startTickerStream();
+    }
+    await this._ensureSymbolSetup(this.config.symbol);
     this.log(`⚙️ Config atualizada`);
   }
 }

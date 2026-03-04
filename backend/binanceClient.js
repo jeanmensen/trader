@@ -34,6 +34,9 @@ class BinanceClient {
     this._restBlockedUntil = 0;
     this._restBlockReason = "";
     this._recvWindow = parseInt(process.env.BINANCE_RECV_WINDOW || "10000", 10);
+    this._exchangeInfoCache = null;
+    this._exchangeInfoFetchedAt = 0;
+    this._exchangeInfoTTL = 60 * 60 * 1000; // 1 hora
   }
 
   // ── Sincronizar relógio com servidor Binance (resolve erro -1021) ──────────
@@ -116,6 +119,92 @@ class BinanceClient {
       msg.includes("send status unknown") ||
       err?.code === "ECONNABORTED"
     );
+  }
+
+  async getExchangeInfo(force = false) {
+    const now = Date.now();
+    if (
+      !force &&
+      this._exchangeInfoCache &&
+      now - this._exchangeInfoFetchedAt < this._exchangeInfoTTL
+    ) {
+      return this._exchangeInfoCache;
+    }
+    const data = await this._request(async () => {
+      const res = await this.http.get("/fapi/v1/exchangeInfo");
+      return res.data;
+    });
+    this._exchangeInfoCache = data;
+    this._exchangeInfoFetchedAt = now;
+    return data;
+  }
+
+  async _getSymbolInfo(symbol) {
+    const sym = String(symbol || "").toUpperCase();
+    if (!sym) return null;
+    let info = await this.getExchangeInfo(false);
+    let symbolInfo = info?.symbols?.find((s) => s.symbol === sym);
+    if (!symbolInfo) {
+      info = await this.getExchangeInfo(true);
+      symbolInfo = info?.symbols?.find((s) => s.symbol === sym);
+    }
+    return symbolInfo || null;
+  }
+
+  _countDecimals(num) {
+    if (!Number.isFinite(num)) return 0;
+    const s = num.toString();
+    if (s.includes("e-")) {
+      const [, exp] = s.split("e-");
+      return parseInt(exp, 10) || 0;
+    }
+    const idx = s.indexOf(".");
+    return idx >= 0 ? s.length - idx - 1 : 0;
+  }
+
+  _roundDownToStep(value, step) {
+    if (!Number.isFinite(value) || !Number.isFinite(step) || step <= 0) {
+      return value;
+    }
+    const n = Math.floor(value / step + 1e-12) * step;
+    const decimals = this._countDecimals(step);
+    return Number(n.toFixed(Math.min(decimals, 12)));
+  }
+
+  async normalizeOrderQuantity(symbol, quantity) {
+    const qty = Number(quantity);
+    if (!Number.isFinite(qty) || qty <= 0) return qty;
+
+    const symbolInfo = await this._getSymbolInfo(symbol);
+    if (!symbolInfo) return qty;
+
+    const filters = symbolInfo.filters || [];
+    const lotFilter =
+      filters.find((f) => f.filterType === "MARKET_LOT_SIZE") ||
+      filters.find((f) => f.filterType === "LOT_SIZE");
+
+    const step = Number(lotFilter?.stepSize || 0);
+    const minQty = Number(lotFilter?.minQty || 0);
+    const maxQty = Number(lotFilter?.maxQty || 0);
+    const precision = Number.isInteger(symbolInfo.quantityPrecision)
+      ? symbolInfo.quantityPrecision
+      : this._countDecimals(step);
+
+    let normalized = qty;
+    if (step > 0) normalized = this._roundDownToStep(normalized, step);
+    if (precision >= 0) normalized = Number(normalized.toFixed(Math.min(precision, 12)));
+    if (minQty > 0 && normalized < minQty) {
+      throw new Error(
+        `Quantidade ${normalized} abaixo do mínimo ${minQty} para ${symbol}`,
+      );
+    }
+    if (maxQty > 0 && normalized > maxQty) normalized = maxQty;
+    if (step > 0) normalized = this._roundDownToStep(normalized, step);
+
+    if (!Number.isFinite(normalized) || normalized <= 0) {
+      throw new Error(`Quantidade inválida após normalização para ${symbol}`);
+    }
+    return normalized;
   }
 
   // ── Account (REST — chamado manualmente, não em loop) ─────────────────────
@@ -204,20 +293,21 @@ class BinanceClient {
   }
 
   async placeMarketOrder(symbol, side, quantity) {
+    const normalizedQty = await this.normalizeOrderQuantity(symbol, quantity);
     const clientOrderId = this._buildClientOrderId("mkt");
     try {
       return await this.placeOrder({
         symbol,
         side,
         type: "MARKET",
-        quantity,
+        quantity: normalizedQty,
         newClientOrderId: clientOrderId,
       });
     } catch (e) {
       if (!this._isExecutionStatusUnknown(e)) throw e;
 
       logger.warn(
-        `Order timeout/unknown (${symbol} ${side} ${quantity}). Reconciliando por clientOrderId=${clientOrderId}`,
+        `Order timeout/unknown (${symbol} ${side} ${normalizedQty}). Reconciliando por clientOrderId=${clientOrderId}`,
       );
 
       // Binance pode aceitar a ordem mas atrasar a resposta.
@@ -412,6 +502,18 @@ class BinanceClient {
     });
     this.streams = {};
     logger.info("Todos WS streams fechados");
+  }
+
+  closeStreamsByPrefix(prefix) {
+    Object.keys(this.streams)
+      .filter((key) => key.startsWith(prefix))
+      .forEach((key) => {
+        this._closedKeys.add(key);
+        try {
+          this.streams[key].terminate();
+        } catch (e) {}
+        delete this.streams[key];
+      });
   }
 }
 

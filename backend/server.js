@@ -28,6 +28,23 @@ let bot = null;
 let tradeStore = null;
 const clients = new Set();
 
+function parseSymbolsList(raw, fallback = []) {
+  const arr = Array.isArray(raw)
+    ? raw
+    : String(raw || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+  const set = new Set(
+    arr.map((s) => String(s || "").trim().toUpperCase()).filter(Boolean),
+  );
+  for (const sym of fallback) {
+    const s = String(sym || "").trim().toUpperCase();
+    if (s) set.add(s);
+  }
+  return [...set];
+}
+
 let botConfig = {
   symbol: process.env.DEFAULT_SYMBOL || "BTCUSDT",
   timeframe: process.env.DEFAULT_TIMEFRAME || "15m",
@@ -37,6 +54,13 @@ let botConfig = {
   takeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || "2.0"),
   maxOpenTrades: parseInt(process.env.MAX_OPEN_TRADES || "1"),
   testnet: process.env.USE_TESTNET !== "false",
+  scanSymbols: parseSymbolsList(process.env.SCAN_SYMBOLS, [
+    process.env.DEFAULT_SYMBOL || "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+  ]),
 };
 
 // ── Auto-conectar usando credenciais do .env ───────────────────────────────
@@ -128,6 +152,7 @@ app.get("/api/config", (req, res) => res.json(botConfig));
 app.put("/api/config", async (req, res) => {
   const { leverage, riskPerTrade, stopLossPct, takeProfitPct, maxOpenTrades } =
     req.body;
+  let scanSymbols = req.body?.scanSymbols;
   if (leverage !== undefined && (leverage < 1 || leverage > 125))
     return res.status(400).json({ error: "leverage deve ser entre 1 e 125" });
   if (riskPerTrade !== undefined && (riskPerTrade <= 0 || riskPerTrade > 10))
@@ -146,8 +171,21 @@ app.put("/api/config", async (req, res) => {
     return res
       .status(400)
       .json({ error: "maxOpenTrades deve ser entre 1 e 10" });
+  if (scanSymbols !== undefined) {
+    scanSymbols = parseSymbolsList(scanSymbols, [req.body?.symbol || botConfig.symbol]);
+    if (!scanSymbols.length) {
+      return res.status(400).json({ error: "scanSymbols não pode ser vazio" });
+    }
+  }
 
-  botConfig = { ...botConfig, ...req.body };
+  botConfig = {
+    ...botConfig,
+    ...req.body,
+    scanSymbols:
+      scanSymbols !== undefined
+        ? scanSymbols
+        : parseSymbolsList(botConfig.scanSymbols, [req.body?.symbol || botConfig.symbol]),
+  };
   try {
     if (bot) await bot.updateConfig(botConfig);
     broadcast({ type: "config", data: botConfig });
@@ -193,13 +231,16 @@ app.get("/api/account", async (req, res) => {
   try {
     if (!binance) return res.status(400).json({ error: "Não conectado" });
     const balances = await binance.getBalance();
-    const positions = await binance.getPositions(botConfig.symbol);
+    const positions =
+      bot && bot.getState().running
+        ? bot.getState().positions || []
+        : await binance.getPositions(botConfig.symbol);
     const usdt = balances.find((b) => b.asset === "USDT");
     res.json({
       balance: parseFloat(usdt?.balance || 0),
       availableBalance: parseFloat(usdt?.availableBalance || 0),
       unrealizedPnl: positions.reduce(
-        (s, p) => s + parseFloat(p.unRealizedProfit),
+        (s, p) => s + parseFloat(p.unRealizedProfit || p.pnl || 0),
         0,
       ),
       positions,
@@ -273,6 +314,9 @@ app.get("/api/signal/:symbol", async (req, res) => {
 app.get("/api/positions", async (req, res) => {
   try {
     if (!binance) return res.status(400).json({ error: "Não conectado" });
+    if (bot && bot.getState().running) {
+      return res.json(bot.getState().positions || []);
+    }
     res.json(await binance.getPositions(botConfig.symbol));
   } catch (e) {
     res.status(500).json({ error: e.response?.data?.msg || e.message });
