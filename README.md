@@ -1,4 +1,4 @@
-# NexusSignal
+# Nexus Signal
 
 **NexusSignal** é um gerador de sinais de trading para **Binance Futures** que monitora múltiplos ativos simultaneamente e identifica oportunidades de trade com base em análise técnica.
 
