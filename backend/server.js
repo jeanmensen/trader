@@ -7,9 +7,7 @@ const WebSocket = require("ws");
 const path = require("path");
 const logger = require("./logger");
 const BinanceClient = require("./binanceClient");
-const TradingBot = require("./bot");
-const TradeStore = require("./tradeStore");
-const { getPgPool } = require("./db");
+const SignalAdvisor = require("./bot");
 const fs = require("fs");
 
 if (!fs.existsSync("logs")) fs.mkdirSync("logs");
@@ -25,7 +23,6 @@ app.use(express.static(path.join(__dirname, "../frontend")));
 // ── State ──────────────────────────────────────────────────────────────────
 let binance = null;
 let bot = null;
-let tradeStore = null;
 const clients = new Set();
 
 function parseSymbolsList(raw, fallback = []) {
@@ -56,11 +53,12 @@ let botConfig = {
   testnet: process.env.USE_TESTNET !== "false",
   bypassDailyLimit: false,
   scanSymbols: parseSymbolsList(process.env.SCAN_SYMBOLS, [
-    process.env.DEFAULT_SYMBOL || "BTCUSDT",
-    "ETHUSDT",
-    "BNBUSDT",
-    "SOLUSDT",
-    "XRPUSDT",
+    "BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT","ADAUSDT",
+    "XLMUSDT","LINKUSDT","HBARUSDT","BCHUSDT","AVAXUSDT",
+    "LTCUSDT","DOTUSDT","UNIUSDT","AAVEUSDT","NEARUSDT",
+    "ETCUSDT","ALGOUSDT","ATOMUSDT","POLUSDT","ARBUSDT",
+    "QNTUSDT","TIAUSDT","OPUSDT","IMXUSDT","GRTUSDT",
+    "LDOUSDT","XTZUSDT",
   ]),
 };
 
@@ -85,10 +83,6 @@ function autoConnect() {
 
   // Só instancia — zero chamadas REST
   binance = new BinanceClient(apiKey, apiSecret, botConfig.testnet);
-  if (!tradeStore) {
-    const db = getPgPool();
-    tradeStore = new TradeStore(db);
-  }
   const modo = botConfig.testnet ? "TESTNET" : "LIVE";
   logger.info(`✅ Credenciais carregadas [${modo}] — pronto para operar`);
   broadcast({ type: "connected", data: { testnet: botConfig.testnet } });
@@ -206,12 +200,19 @@ app.post("/api/bot/start", async (req, res) => {
           error:
             "Binance não conectada. Verifique o .env e reinicie o servidor.",
         });
-    if (!bot) bot = new TradingBot(binance, botConfig, broadcast, tradeStore);
+    if (!bot) bot = new SignalAdvisor(binance, botConfig, broadcast);
     const result = await bot.start();
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Analyze now (mosaic)
+app.post("/api/bot/analyze", (req, res) => {
+  if (!bot) return res.status(400).json({ error: "Bot não inicializado" });
+  const result = bot.analyzeNow();
+  res.json(result);
 });
 
 // Stop bot
@@ -232,19 +233,12 @@ app.get("/api/account", async (req, res) => {
   try {
     if (!binance) return res.status(400).json({ error: "Não conectado" });
     const balances = await binance.getBalance();
-    const positions =
-      bot && bot.getState().running
-        ? bot.getState().positions || []
-        : await binance.getPositions(botConfig.symbol);
     const usdt = balances.find((b) => b.asset === "USDT");
     res.json({
       balance: parseFloat(usdt?.balance || 0),
       availableBalance: parseFloat(usdt?.availableBalance || 0),
-      unrealizedPnl: positions.reduce(
-        (s, p) => s + parseFloat(p.unRealizedProfit || p.pnl || 0),
-        0,
-      ),
-      positions,
+      unrealizedPnl: 0,
+      positions: [],
     });
   } catch (e) {
     res.status(500).json({ error: e.response?.data?.msg || e.message });
@@ -311,69 +305,10 @@ app.get("/api/signal/:symbol", async (req, res) => {
   }
 });
 
-// Positions
-app.get("/api/positions", async (req, res) => {
-  try {
-    if (!binance) return res.status(400).json({ error: "Não conectado" });
-    if (bot && bot.getState().running) {
-      return res.json(bot.getState().positions || []);
-    }
-    res.json(await binance.getPositions(botConfig.symbol));
-  } catch (e) {
-    res.status(500).json({ error: e.response?.data?.msg || e.message });
-  }
-});
+// Positions (modo sinal — sempre vazio)
+app.get("/api/positions", (req, res) => res.json([]));
 
-// Close all positions
-app.post("/api/positions/close-all", async (req, res) => {
-  try {
-    if (!bot) return res.status(400).json({ error: "Bot não inicializado" });
-    await bot.closeAllPositions();
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Close a single position
-app.post("/api/positions/close", async (req, res) => {
-  try {
-    if (!binance) return res.status(400).json({ error: "Não conectado" });
-    if (!bot) bot = new TradingBot(binance, botConfig, broadcast, tradeStore);
-    const { symbol, side, size } = req.body || {};
-    if (!symbol || !side || !size) {
-      return res
-        .status(400)
-        .json({ error: "symbol, side e size são obrigatórios" });
-    }
-    await bot.closePosition(symbol, side, parseFloat(size));
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.response?.data?.msg || e.message });
-  }
-});
-
-// Manual order
-app.post("/api/order", async (req, res) => {
-  try {
-    if (!binance) return res.status(400).json({ error: "Não conectado" });
-    if (!bot) bot = new TradingBot(binance, botConfig, broadcast, tradeStore);
-    await bot.placeManualOrder(req.body);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.response?.data?.msg || e.message });
-  }
-});
-
-// Order history
-app.get("/api/orders/:symbol", async (req, res) => {
-  try {
-    if (!binance) return res.status(400).json({ error: "Não conectado" });
-    res.json(await binance.getOrderHistory(req.params.symbol, 50));
-  } catch (e) {
-    res.status(500).json({ error: e.response?.data?.msg || e.message });
-  }
-});
+// (Endpoints de execução de ordens removidos — modo sinal apenas)
 
 // Catch-all → frontend
 app.get("*", (req, res) => {

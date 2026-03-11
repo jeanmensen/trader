@@ -208,6 +208,17 @@ class BinanceClient {
   }
 
   // ── Account (REST — chamado manualmente, não em loop) ─────────────────────
+  async getMinNotional(symbol) {
+    const symbolInfo = await this._getSymbolInfo(symbol);
+    if (!symbolInfo) return 0;
+    const filters = symbolInfo.filters || [];
+    const notionalFilter = filters.find((f) => f.filterType === "NOTIONAL");
+    const minNotionalFilter = filters.find((f) => f.filterType === "MIN_NOTIONAL");
+    const value =
+      Number(notionalFilter?.notional || 0) ||
+      Number(minNotionalFilter?.minNotional || 0);
+    return Number.isFinite(value) ? value : 0;
+  }
   async getBalance() {
     return this._request(async () => {
       const qs = this.sign({});
@@ -518,3 +529,4 @@ class BinanceClient {
 }
 
 module.exports = BinanceClient;
+
