@@ -5,3 +5,4 @@ backend/.env
 logs/
 backend/logs/
 *.log
+.claude/
