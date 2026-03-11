@@ -44,11 +44,11 @@ function parseSymbolsList(raw, fallback = []) {
 
 let botConfig = {
   symbol: process.env.DEFAULT_SYMBOL || "BTCUSDT",
-  timeframe: process.env.DEFAULT_TIMEFRAME || "15m",
+  timeframe: process.env.DEFAULT_TIMEFRAME || "4h",
   leverage: parseInt(process.env.DEFAULT_LEVERAGE || "2"),
   riskPerTrade: parseFloat(process.env.RISK_PER_TRADE || "0.5"),
-  stopLossPct: parseFloat(process.env.STOP_LOSS_PCT || "1.0"),
-  takeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || "2.0"),
+  stopLossPct: parseFloat(process.env.STOP_LOSS_PCT || "1.2"),
+  takeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || "3.0"),
   maxOpenTrades: parseInt(process.env.MAX_OPEN_TRADES || "1"),
   testnet: process.env.USE_TESTNET !== "false",
   bypassDailyLimit: false,

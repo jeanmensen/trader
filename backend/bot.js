@@ -160,6 +160,7 @@ class SignalAdvisor {
         symbols: this.symbols,
         running: this.state.running,
         stats: this.state.stats,
+        topOpportunities: this.getTopOpportunities(),
       },
     });
   }
@@ -194,7 +195,18 @@ class SignalAdvisor {
       symbols: this.symbols,
       signals: this.state.signalsMap,
       prices: this.state.priceMap,
+      topOpportunities: this.getTopOpportunities(),
     };
+  }
+
+  getTopOpportunities(limit = 5) {
+    return Object.values(this.state.signalsMap)
+      .filter((signal) => signal && signal.signal === "LONG")
+      .sort((a, b) => {
+        if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+        return (b.riskReward || 0) - (a.riskReward || 0);
+      })
+      .slice(0, limit);
   }
 
   getState() { return this.getSafeState(); }

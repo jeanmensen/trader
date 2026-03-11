@@ -1,14 +1,12 @@
-﻿// strategy.js - Conservative Trading Strategy v2
-// 5 pillars: Trend | Momentum | Price Position | Market Regime | Volume
-// HTF filter via EMA200. Minimum score 6/10.
+// strategy.js - Swing strategy focused on bullish pullbacks with fixed-profit exits.
 
 const { EMA, RSI, BollingerBands, ATR } = require("technicalindicators");
 
 class ConservativeStrategy {
   constructor(config = {}) {
-    this.emaFast = config.emaFast || 9;
-    this.emaSlow = config.emaSlow || 21;
-    this.emaLong = config.emaLong || 50;
+    this.emaFast = config.emaFast || 20;
+    this.emaSlow = config.emaSlow || 50;
+    this.emaLong = config.emaLong || 100;
     this.emaFilter = config.emaFilter || 200;
     this.rsiPeriod = config.rsiPeriod || 14;
     this.bbPeriod = config.bbPeriod || 20;
@@ -16,7 +14,7 @@ class ConservativeStrategy {
     this.atrPeriod = config.atrPeriod || 14;
     this.atrMult = config.atrMult || 1.5;
     this.stopLossPct = config.stopLossPct || null;
-    this.takeProfitPct = config.takeProfitPct || null;
+    this.takeProfitPct = config.takeProfitPct || 3;
   }
 
   calculate(candles) {
@@ -56,13 +54,16 @@ class ConservativeStrategy {
     const bb = bbArr[bbArr.length - 1];
     const atr = atrArr[atrArr.length - 1];
 
-    const recentBBWidths = bbArr.slice(-6, -1).map((b) => (b.upper - b.lower) / b.middle);
-    const avgBBWidth = recentBBWidths.reduce((a, b) => a + b, 0) / recentBBWidths.length;
+    const recentBBWidths = bbArr
+      .slice(-6, -1)
+      .map((b) => (b.upper - b.lower) / b.middle);
+    const avgBBWidth =
+      recentBBWidths.reduce((sum, value) => sum + value, 0) / recentBBWidths.length;
     const bbWidth = (bb.upper - bb.lower) / bb.middle;
     const bbExpanding = bbWidth > avgBBWidth;
 
     const recentVol = volumes.slice(-20);
-    const avgVol = recentVol.reduce((a, b) => a + b, 0) / recentVol.length;
+    const avgVol = recentVol.reduce((sum, value) => sum + value, 0) / recentVol.length;
     const volRatio = volumes[volumes.length - 1] / avgVol;
 
     return {
@@ -109,95 +110,81 @@ class ConservativeStrategy {
       volRatio,
     } = ind;
 
-    const htfBull = price > emaFilterV;
-    const htfBear = price < emaFilterV;
+    const lastCandle = candles[candles.length - 1];
+    const prevCandle = candles[candles.length - 2];
+    const priorCandle = candles[candles.length - 3];
 
+    const htfBull = price > emaFilterV;
     const freshGoldenCross = emaFastP <= emaSlowP && emaFastV > emaSlowV;
-    const freshDeathCross = emaFastP >= emaSlowP && emaFastV < emaSlowV;
-    const bullTrend = !freshGoldenCross && emaFastV > emaSlowV && emaSlowV > emaLongV;
-    const bearTrend = !freshDeathCross && emaFastV < emaSlowV && emaSlowV < emaLongV;
+    const bullTrend = emaFastV > emaSlowV && emaSlowV > emaLongV;
+    const strongTrend = htfBull && bullTrend;
 
     const rsiRising = rsi > rsiPrev;
-    const rsiFalling = rsi < rsiPrev;
-    const rsiLong = rsi >= 40 && rsi <= 70;
-    const rsiShort = rsi >= 30 && rsi <= 60;
+    const healthyMomentum = rsi >= 48 && rsi <= 68;
+    const notOverextended = price < bb.upper * 0.992;
+    const regimeOK = bbExpanding || price > bb.middle;
+    const volConfirm = volRatio >= 1.05;
 
-    const bbLong = price > bb.middle && price < bb.upper;
-    const bbShort = price < bb.middle && price > bb.lower;
-
-    const regimeOK = bbExpanding;
-    const volConfirm = volRatio > 1.2;
+    const distanceToFast = Math.abs(price - emaFastV) / emaFastV;
+    const distanceToSlow = Math.abs(price - emaSlowV) / emaSlowV;
+    const touchedValueZone =
+      distanceToFast <= 0.018 ||
+      distanceToSlow <= 0.012 ||
+      lastCandle.low <= emaFastV * 1.003;
+    const bullishClose = lastCandle.close > lastCandle.open;
+    const reboundConfirmed =
+      bullishClose &&
+      lastCandle.close > prevCandle.close &&
+      lastCandle.close > emaFastV &&
+      prevCandle.low <= emaFastV * 1.01;
+    const higherLow =
+      lastCandle.low >= Math.min(prevCandle.low, priorCandle.low) * 0.995;
+    const swingStructure = touchedValueZone && reboundConfirmed && higherLow;
 
     let longScore = 0;
     const longReasons = [];
 
-    if (freshGoldenCross) {
-      longScore += 4;
-      longReasons.push("Golden Cross");
-    } else if (bullTrend) {
+    if (strongTrend) {
       longScore += 3;
-      longReasons.push("EMA Uptrend Aligned");
-    }
-
-    if (rsiLong) {
-      longScore += rsiRising ? 2 : 1;
-      longReasons.push(rsiRising ? "RSI [40-70] Rising" : "RSI [40-70]");
-    }
-
-    if (bbLong) {
+      longReasons.push("Tendencia de alta alinhada");
+    } else if (freshGoldenCross && htfBull) {
       longScore += 2;
-      longReasons.push("Price above BB Mid");
+      longReasons.push("Cruzamento altista recente");
+    }
+
+    if (touchedValueZone) {
+      longScore += 2;
+      longReasons.push("Pullback em zona de valor");
+    }
+
+    if (reboundConfirmed) {
+      longScore += 2;
+      longReasons.push("Retomada confirmada");
+    }
+
+    if (healthyMomentum) {
+      longScore += rsiRising ? 2 : 1;
+      longReasons.push(rsiRising ? "RSI saudavel e subindo" : "RSI saudavel");
+    }
+
+    if (higherLow) {
+      longScore += 1;
+      longReasons.push("Fundo mais alto preservado");
     }
 
     if (regimeOK) {
       longScore += 1;
-      longReasons.push("BB Expanding");
+      longReasons.push("Regime favoravel");
     }
 
     if (volConfirm) {
       longScore += 1;
-      longReasons.push("Volume Confirmed");
+      longReasons.push("Volume confirma");
     }
 
-    if (!htfBull) {
+    if (!htfBull || !notOverextended || !swingStructure) {
       longScore = 0;
       longReasons.length = 0;
-    }
-
-    let shortScore = 0;
-    const shortReasons = [];
-
-    if (freshDeathCross) {
-      shortScore += 4;
-      shortReasons.push("Death Cross");
-    } else if (bearTrend) {
-      shortScore += 3;
-      shortReasons.push("EMA Downtrend Aligned");
-    }
-
-    if (rsiShort) {
-      shortScore += rsiFalling ? 2 : 1;
-      shortReasons.push(rsiFalling ? "RSI [30-60] Falling" : "RSI [30-60]");
-    }
-
-    if (bbShort) {
-      shortScore += 2;
-      shortReasons.push("Price below BB Mid");
-    }
-
-    if (regimeOK) {
-      shortScore += 1;
-      shortReasons.push("BB Expanding");
-    }
-
-    if (volConfirm) {
-      shortScore += 1;
-      shortReasons.push("Volume Confirmed");
-    }
-
-    if (!htfBear) {
-      shortScore = 0;
-      shortReasons.length = 0;
     }
 
     const MIN_SCORE = 6;
@@ -212,21 +199,23 @@ class ConservativeStrategy {
       bbUpper: bb.upper,
       bbMiddle: bb.middle,
       bbLower: bb.lower,
-      bbExpanding: ind.bbExpanding,
+      bbExpanding,
       atr,
       volRatio: volRatio.toFixed(2),
-      htfBias: htfBull ? "BULL" : htfBear ? "BEAR" : "NEUTRAL",
+      htfBias: htfBull ? "BULL" : "NEUTRAL",
+      swingPullback: touchedValueZone,
+      reboundConfirmed,
+      notOverextended,
     };
 
     const slDistance = this.stopLossPct
       ? price * (this.stopLossPct / 100)
       : atr * this.atrMult;
-    const tpMultiple =
-      this.stopLossPct && this.takeProfitPct
-        ? this.takeProfitPct / this.stopLossPct
-        : 2.0;
+    const targetPct = this.takeProfitPct || 3;
+    const rewardDistance = price * (targetPct / 100);
+    const riskReward = slDistance > 0 ? rewardDistance / slDistance : 0;
 
-    if (longScore >= MIN_SCORE && longScore > shortScore) {
+    if (longScore >= MIN_SCORE) {
       return {
         signal: "LONG",
         score: longScore,
@@ -234,33 +223,22 @@ class ConservativeStrategy {
         reasons: longReasons,
         price,
         stopLoss: +(price - slDistance).toFixed(2),
-        takeProfit: +(price + slDistance * tpMultiple).toFixed(2),
+        takeProfit: +(price * (1 + targetPct / 100)).toFixed(2),
         slDistance: +slDistance.toFixed(2),
+        targetPct,
+        setup: "SWING_PULLBACK_LONG",
+        confidence:
+          longScore >= 8 ? "ALTA" : longScore >= 7 ? "MEDIA" : "MODERADA",
+        riskReward: +riskReward.toFixed(2),
         indicators,
       };
     }
 
-    if (shortScore >= MIN_SCORE && shortScore > longScore) {
-      return {
-        signal: "SHORT",
-        score: shortScore,
-        maxScore: MAX_SCORE,
-        reasons: shortReasons,
-        price,
-        stopLoss: +(price + slDistance).toFixed(2),
-        takeProfit: +(price - slDistance * tpMultiple).toFixed(2),
-        slDistance: +slDistance.toFixed(2),
-        indicators,
-      };
-    }
-
-    const htfStr = htfBull ? "BULL" : htfBear ? "BEAR" : "NEUTRAL";
     return {
       signal: "NONE",
-      reason: `Score insuficiente (Long:${longScore} Short:${shortScore} Min:${MIN_SCORE}/${MAX_SCORE}) | HTF: ${htfStr}`,
+      reason: `Setup de swing ausente (Score:${longScore} Min:${MIN_SCORE}/${MAX_SCORE}) | HTF: ${htfBull ? "BULL" : "NEUTRAL"}`,
       indicators,
       longScore,
-      shortScore,
       maxScore: MAX_SCORE,
     };
   }

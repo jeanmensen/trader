@@ -3,922 +3,652 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>NEXUS SIGNAL · Mosaic</title>
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&family=Exo+2:wght@300;400;700&display=swap" rel="stylesheet" />
+  <title>Nexus Signal</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg:    #020510; --bg2: #060d1a; --bg3: #0a1628; --bg4: #0f1f3a;
-      --border: #0d2a4a; --border2: #1a4a7a;
-      --accent: #00c8ff; --accent2: #0085c7; --accent-dim: #004a6e;
-      --green: #00ff88; --green-dim: #003322; --green2: #00cc6a;
-      --red: #ff3355;   --red-dim:   #220011; --red2:   #cc2244;
-      --yellow: #ffcc00; --yellow-dim: #332200;
-      --text: #c0d8f0; --text2: #7099bb; --text3: #3a5a7a;
-    }
-    * { margin:0; padding:0; box-sizing:border-box; }
-    html,body { height:100%; background:var(--bg); color:var(--text); font-family:"Exo 2",sans-serif; font-size:13px; overflow:hidden; }
-
-    body::before {
-      content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
-      background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px);
+      --bg: #07111f;
+      --panel: #0c1a2c;
+      --panel-2: #12243b;
+      --border: #1d3c61;
+      --text: #d6e8ff;
+      --muted: #6f8fb1;
+      --accent: #37c8ff;
+      --green: #00e58b;
+      --red: #ff5c72;
+      --yellow: #ffcf4a;
     }
 
-    /* ── HEADER ── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top right, rgba(55, 200, 255, 0.12), transparent 28%),
+        linear-gradient(180deg, #050b14 0%, var(--bg) 100%);
+      color: var(--text);
+      font-family: "Rajdhani", sans-serif;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
     header {
-      display:flex; align-items:center; justify-content:space-between;
-      padding:0 20px; height:52px; background:var(--bg2);
-      border-bottom:1px solid var(--border); position:relative; z-index:100; flex-shrink:0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(7, 17, 31, 0.88);
+      backdrop-filter: blur(8px);
     }
-    header::after { content:""; position:absolute; bottom:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--accent),transparent); }
-    .logo { display:flex; align-items:center; gap:10px; }
-    .logo-hex {
-      width:28px; height:28px; background:var(--accent);
-      clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
-      display:flex; align-items:center; justify-content:center;
-      font-size:12px; font-weight:700; color:var(--bg); font-family:"Share Tech Mono",monospace;
-      animation:pulse-glow 2s infinite;
-    }
-    @keyframes pulse-glow { 0%,100%{box-shadow:0 0 8px var(--accent);}50%{box-shadow:0 0 24px var(--accent),0 0 48px var(--accent);} }
-    .logo-text { font-family:"Rajdhani",sans-serif; font-size:20px; font-weight:700; letter-spacing:4px; background:linear-gradient(90deg,var(--accent),#fff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
-    .logo-sub  { font-family:"Share Tech Mono",monospace; font-size:8px; color:var(--text3); letter-spacing:3px; }
 
-    .header-controls { display:flex; align-items:center; gap:12px; }
-
-    .pill {
-      display:flex; align-items:center; gap:6px; padding:5px 12px;
-      border:1px solid var(--border); background:var(--bg3); border-radius:2px;
-      font-family:"Share Tech Mono",monospace; font-size:11px; white-space:nowrap;
+    .brand-title {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 3px;
     }
-    .dot { width:7px; height:7px; border-radius:50%; background:var(--text3); }
-    .dot.green  { background:var(--green);  box-shadow:0 0 6px var(--green); }
-    .dot.red    { background:var(--red);    box-shadow:0 0 6px var(--red); }
-    .dot.yellow { background:var(--yellow); box-shadow:0 0 6px var(--yellow); }
 
-    select.tf-select {
-      background:var(--bg3); border:1px solid var(--border2); color:var(--accent);
-      font-family:"Share Tech Mono",monospace; font-size:12px; padding:5px 8px;
-      border-radius:2px; cursor:pointer; outline:none;
+    .brand-sub {
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
     }
-    select.tf-select option { background:var(--bg2); }
+
+    .header-side {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pill,
+    .stat,
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      border-radius: 4px;
+      padding: 8px 12px;
+    }
+
+    .pill,
+    .stat {
+      font-family: "Share Tech Mono", monospace;
+      font-size: 11px;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      margin-right: 6px;
+    }
+
+    .dot.green { background: var(--green); box-shadow: 0 0 10px rgba(0, 229, 139, 0.6); }
+    .dot.red { background: var(--red); box-shadow: 0 0 10px rgba(255, 92, 114, 0.6); }
+
+    .stat strong {
+      color: var(--accent);
+      margin-right: 6px;
+    }
 
     .btn {
-      padding:6px 16px; border:1px solid; border-radius:2px; cursor:pointer;
-      font-family:"Rajdhani",sans-serif; font-size:13px; font-weight:600; letter-spacing:2px;
-      text-transform:uppercase; transition:.2s;
+      cursor: pointer;
+      color: var(--text);
+      font: inherit;
+      font-weight: 700;
+      letter-spacing: 1px;
+      transition: 0.2s ease;
     }
-    .btn-start { border-color:var(--green2); color:var(--green); background:rgba(0,255,136,.08); }
-    .btn-start:hover { background:rgba(0,255,136,.2); }
-    .btn-stop  { border-color:var(--red2);   color:var(--red);   background:rgba(255,51,85,.08); }
-    .btn-stop:hover  { background:rgba(255,51,85,.2); }
-    .btn-analyze { border-color:var(--accent2); color:var(--accent); background:rgba(0,200,255,.08); }
-    .btn-analyze:hover { background:rgba(0,200,255,.2); }
 
-    .stat-chip {
-      font-family:"Share Tech Mono",monospace; font-size:11px; padding:4px 10px;
-      border:1px solid var(--border); border-radius:2px; background:var(--bg3);
+    .btn:hover { transform: translateY(-1px); }
+    .btn-start { color: var(--green); border-color: rgba(0, 229, 139, 0.35); }
+    .btn-stop { color: var(--red); border-color: rgba(255, 92, 114, 0.35); }
+
+    main {
+      flex: 1;
+      padding: 18px;
+      display: grid;
+      gap: 14px;
     }
-    .stat-chip .val { font-size:14px; font-weight:700; }
-    .stat-chip.long-chip { border-color:var(--green-dim); color:var(--green); }
-    .stat-chip.short-chip { border-color:var(--red-dim); color:var(--red); }
-    .stat-chip.total-chip { border-color:var(--accent-dim); color:var(--accent); }
 
-    /* ── APP LAYOUT ── */
-    .app { display:flex; flex-direction:column; height:100vh; }
-    .main { display:flex; flex:1; overflow:hidden; }
+    .panel {
+      border: 1px solid var(--border);
+      background: rgba(12, 26, 44, 0.9);
+      border-radius: 8px;
+      overflow: hidden;
+    }
 
-    /* ── MOSAIC GRID ── */
-    .mosaic-wrap { flex:1; overflow-y:auto; padding:14px; }
-    .mosaic-wrap::-webkit-scrollbar { width:6px; }
-    .mosaic-wrap::-webkit-scrollbar-track { background:var(--bg2); }
-    .mosaic-wrap::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(29, 60, 97, 0.7);
+      background: linear-gradient(90deg, rgba(55, 200, 255, 0.08), transparent);
+    }
+
+    .panel-title {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .panel-sub {
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+    }
+
+    .top-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .top-item,
+    .card {
+      border: 1px solid rgba(29, 60, 97, 0.85);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .top-item.empty {
+      color: var(--muted);
+      min-height: 120px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-family: "Share Tech Mono", monospace;
+    }
+
+    .top-item-head,
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .rank,
+    .badge,
+    .score {
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+    }
+
+    .rank { color: var(--yellow); }
+    .score {
+      color: var(--accent);
+      border: 1px solid rgba(55, 200, 255, 0.24);
+      border-radius: 999px;
+      padding: 3px 7px;
+    }
+
+    .symbol {
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .pair {
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+      margin-top: 3px;
+    }
+
+    .levels,
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 12px;
+    }
+
+    .label {
+      display: block;
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 9px;
+      margin-bottom: 3px;
+    }
+
+    .value {
+      font-family: "Share Tech Mono", monospace;
+      font-size: 12px;
+    }
+
+    .value.target { color: var(--green); }
+    .value.stop { color: var(--red); }
 
     .mosaic {
-      display:grid;
-      grid-template-columns:repeat(auto-fill,minmax(195px,1fr));
-      gap:10px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 12px;
+      padding: 14px;
     }
 
-    /* ── CRYPTO CARD ── */
-    .crypto-card {
-      background:var(--bg2); border:1px solid var(--border); border-radius:4px;
-      padding:12px; display:flex; flex-direction:column; gap:8px;
-      transition:border-color .3s, box-shadow .3s;
-      position:relative; overflow:hidden; min-height:170px;
+    .card.best {
+      border-color: rgba(255, 207, 74, 0.9);
+      box-shadow: 0 0 0 1px rgba(255, 207, 74, 0.25), 0 0 22px rgba(255, 207, 74, 0.12);
     }
-    .crypto-card::before {
-      content:""; position:absolute; top:0; left:0; right:0; height:2px;
-      background:var(--border2); transition:background .3s;
-    }
-    .crypto-card.sig-long  { border-color:#003322; box-shadow:0 0 12px rgba(0,255,136,.12); }
-    .crypto-card.sig-long::before  { background:var(--green); }
-    .crypto-card.sig-short { border-color:#220011; box-shadow:0 0 12px rgba(255,51,85,.12); }
-    .crypto-card.sig-short::before { background:var(--red); }
-    .crypto-card.loading   { opacity:.6; }
 
-    /* ── CARD DESTAQUE (melhor oportunidade) ── */
-    .crypto-card.card-best {
-      border-color: #aa7700 !important;
-      box-shadow: 0 0 0 1px #ffcc00, 0 0 24px rgba(255,204,0,.35) !important;
+    .badge {
+      border: 1px solid rgba(29, 60, 97, 0.8);
+      padding: 3px 7px;
+      border-radius: 999px;
+      color: var(--muted);
     }
-    .crypto-card.card-best::before { background: var(--yellow) !important; }
-    .best-badge {
-      position:absolute; top:8px; right:8px;
-      font-family:"Share Tech Mono",monospace; font-size:9px; letter-spacing:1px;
-      color:var(--yellow); background:rgba(255,204,0,.12);
-      border:1px solid #aa7700; border-radius:2px; padding:2px 6px;
-    }
-    @keyframes best-pulse {
-      0%,100% { box-shadow:0 0 0 1px #ffcc00,0 0 20px rgba(255,204,0,.3); }
-      50%      { box-shadow:0 0 0 1px #ffcc00,0 0 40px rgba(255,204,0,.6); }
-    }
-    .crypto-card.card-best { animation:best-pulse 2s infinite; }
 
-    @keyframes card-flash {
-      0%,100% { opacity:1; }
-      30%     { opacity:.4; }
+    .badge.long {
+      color: var(--green);
+      border-color: rgba(0, 229, 139, 0.35);
     }
-    .crypto-card.flash { animation:card-flash .5s ease; }
 
-    /* card header */
-    .card-top { display:flex; justify-content:space-between; align-items:flex-start; }
-    .card-sym-wrap { display:flex; flex-direction:column; }
-    .card-sym  { font-family:"Rajdhani",sans-serif; font-size:18px; font-weight:700; color:#fff; line-height:1; }
-    .card-pair { font-family:"Share Tech Mono",monospace; font-size:9px; color:var(--text3); letter-spacing:1px; }
+    .badge.none {
+      color: var(--muted);
+    }
 
-    /* signal badge */
-    .sig-badge {
-      font-family:"Rajdhani",sans-serif; font-size:12px; font-weight:700; letter-spacing:2px;
-      padding:3px 8px; border-radius:2px; border:1px solid;
+    .price {
+      font-family: "Share Tech Mono", monospace;
+      font-size: 18px;
+      color: var(--accent);
+      margin-bottom: 10px;
     }
-    .sig-badge.LONG  { color:var(--green);  border-color:var(--green2);  background:rgba(0,255,136,.12); }
-    .sig-badge.SHORT { color:var(--red);    border-color:var(--red2);    background:rgba(255,51,85,.12); }
-    .sig-badge.NONE  { color:var(--text3);  border-color:var(--border);  background:transparent; }
-    .sig-badge.LOAD  { color:var(--text3);  border-color:var(--border);  background:transparent; font-size:10px; letter-spacing:1px; }
 
-    /* price */
-    .card-price {
-      font-family:"Share Tech Mono",monospace; font-size:15px; color:var(--accent); letter-spacing:.5px;
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 10px;
+      margin-bottom: 10px;
     }
-    .card-price.up   { color:var(--green); }
-    .card-price.down { color:var(--red); }
 
-    /* score */
-    .score-row { display:flex; align-items:center; gap:6px; }
-    .score-bar { flex:1; height:5px; background:var(--bg4); border-radius:3px; overflow:hidden; }
-    .score-fill { height:100%; border-radius:3px; transition:width .4s ease; background:var(--text3); }
-    .sig-long  .score-fill { background:var(--green2); }
-    .sig-short .score-fill { background:var(--red2); }
-    .score-txt { font-family:"Share Tech Mono",monospace; font-size:10px; color:var(--text2); width:28px; text-align:right; }
+    .card-time {
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+      margin-top: 10px;
+    }
 
-    /* indicators */
-    .card-inds {
-      display:grid; grid-template-columns:1fr 1fr; gap:2px 8px;
-      font-family:"Share Tech Mono",monospace; font-size:10px; color:var(--text2);
-    }
-    .ind-item { display:flex; justify-content:space-between; }
-    .ind-val  { color:var(--text); }
-    .ind-val.up   { color:var(--green); }
-    .ind-val.down { color:var(--red); }
-
-    /* levels */
-    .card-levels {
-      display:flex; gap:8px;
-      font-family:"Share Tech Mono",monospace; font-size:9px;
-    }
-    .lv-sl { color:var(--red2); }
-    .lv-tp { color:var(--green2); }
-
-    /* time */
-    .card-time { font-family:"Share Tech Mono",monospace; font-size:9px; color:var(--text3); margin-top:auto; }
-
-    /* loading spinner */
-    .spinner { display:inline-block; width:12px; height:12px; border:2px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
-    @keyframes spin { to { transform:rotate(360deg); } }
-
-    /* ── LOG PANEL ── */
-    .log-panel {
-      width:0; overflow:hidden; background:var(--bg2); border-left:1px solid var(--border);
-      display:flex; flex-direction:column; transition:width .3s;
-      flex-shrink:0;
-    }
-    .log-panel.open { width:300px; }
-    .log-header {
-      display:flex; justify-content:space-between; align-items:center;
-      padding:10px 12px; border-bottom:1px solid var(--border);
-      font-family:"Share Tech Mono",monospace; font-size:11px; color:var(--accent); flex-shrink:0;
-    }
-    .log-close { cursor:pointer; color:var(--text3); font-size:16px; line-height:1; }
-    .log-close:hover { color:var(--text); }
-    .log-list { flex:1; overflow-y:auto; padding:8px; display:flex; flex-direction:column; gap:4px; }
-    .log-list::-webkit-scrollbar { width:4px; }
-    .log-list::-webkit-scrollbar-thumb { background:var(--border2); }
-    .log-entry { font-family:"Share Tech Mono",monospace; font-size:10px; color:var(--text2); line-height:1.4; word-break:break-word; }
-    .log-entry.warn  { color:var(--yellow); }
-    .log-entry.error { color:var(--red); }
-    .log-entry .log-time { color:var(--text3); margin-right:4px; }
-
-    /* ── CONFIG MODAL ── */
-    .modal-overlay {
-      display:none; position:fixed; inset:0; z-index:1000;
-      background:rgba(2,5,16,.75); backdrop-filter:blur(4px);
-      align-items:center; justify-content:center;
-    }
-    .modal-overlay.open { display:flex; }
-    .modal-box {
-      background:var(--bg2); border:1px solid var(--border2); border-radius:4px;
-      padding:24px; width:340px; position:relative;
-    }
-    .modal-box::before {
-      content:""; position:absolute; top:0; left:0; right:0; height:2px;
-      background:linear-gradient(90deg,transparent,var(--accent),transparent);
-    }
-    .modal-title {
-      font-family:"Rajdhani",sans-serif; font-size:16px; font-weight:700;
-      letter-spacing:3px; color:var(--accent); margin-bottom:20px;
-    }
-    .form-group { display:flex; flex-direction:column; gap:5px; margin-bottom:14px; }
-    .form-group label {
-      font-family:"Share Tech Mono",monospace; font-size:10px; color:var(--text2); letter-spacing:1px;
-    }
-    .form-group input {
-      background:var(--bg3); border:1px solid var(--border2); color:var(--text);
-      font-family:"Share Tech Mono",monospace; font-size:13px; padding:7px 10px;
-      border-radius:2px; outline:none; width:100%;
-      transition:border-color .2s;
-    }
-    .form-group input:focus { border-color:var(--accent); }
-    .form-hint { font-family:"Share Tech Mono",monospace; font-size:9px; color:var(--text3); margin-top:2px; }
-    .form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    .modal-footer { display:flex; gap:10px; margin-top:20px; justify-content:flex-end; }
-    .btn-sm {
-      padding:6px 18px; border:1px solid; border-radius:2px; cursor:pointer;
-      font-family:"Rajdhani",sans-serif; font-size:12px; font-weight:700; letter-spacing:2px;
-    }
-    .btn-save   { border-color:var(--green2); color:var(--green); background:rgba(0,255,136,.08); }
-    .btn-save:hover { background:rgba(0,255,136,.2); }
-    .btn-cancel { border-color:var(--border2); color:var(--text2); background:transparent; }
-    .btn-cancel:hover { color:var(--text); }
-    .form-sep { border:none; border-top:1px solid var(--border); margin:16px 0; }
-
-    /* ── STATUS BAR ── */
     .status-bar {
-      height:28px; background:var(--bg2); border-top:1px solid var(--border);
-      display:flex; align-items:center; padding:0 16px; gap:20px;
-      font-family:"Share Tech Mono",monospace; font-size:10px; color:var(--text3);
-      flex-shrink:0;
+      border-top: 1px solid var(--border);
+      background: rgba(7, 17, 31, 0.92);
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+      padding: 10px 18px;
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
     }
-    .status-bar span { display:flex; align-items:center; gap:5px; }
 
-    /* ── Scrollbar global ── */
-    ::-webkit-scrollbar { width:5px; height:5px; }
-    ::-webkit-scrollbar-track { background:var(--bg); }
-    ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:3px; }
+    @media (max-width: 720px) {
+      header { align-items: flex-start; }
+      .header-side { justify-content: flex-start; }
+      .top-list, .mosaic { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-<div class="app">
-
-  <!-- HEADER -->
-  <header>
-    <div class="logo">
-      <div class="logo-hex">N</div>
+  <div class="app">
+    <header>
       <div>
-        <div class="logo-text">NEXUS SIGNAL</div>
-        <div class="logo-sub">MOSAIC · BINANCE FUTURES</div>
+        <div class="brand-title">NEXUS SIGNAL</div>
+        <div class="brand-sub">SWING DASHBOARD · CRYPTO</div>
       </div>
-    </div>
-
-    <div class="header-controls">
-      <div class="pill">
-        <div class="dot" id="dot-conn"></div>
-        <span id="lbl-conn">DESCONECTADO</span>
+      <div class="header-side">
+        <div class="pill"><span class="dot" id="dot-conn"></span><span id="lbl-conn">DESCONECTADO</span></div>
+        <div class="pill"><span class="dot" id="dot-run"></span><span id="lbl-run">PARADO</span></div>
+        <div class="stat"><strong id="cnt-total">0</strong>SINAIS</div>
+        <div class="stat"><strong id="cnt-long">0</strong>LONG</div>
+        <div class="stat"><strong id="cnt-short">0</strong>SHORT</div>
+        <button class="btn btn-start" id="btn-start" onclick="doStart()">INICIAR</button>
+        <button class="btn btn-stop" id="btn-stop" onclick="doStop()" style="display:none">PARAR</button>
       </div>
-      <div class="pill">
-        <div class="dot" id="dot-run"></div>
-        <span id="lbl-run">PARADO</span>
-      </div>
+    </header>
 
-      <div class="stat-chip total-chip"><span class="val" id="cnt-total">0</span> SINAIS</div>
-      <div class="stat-chip long-chip">▲ <span class="val" id="cnt-long">0</span></div>
-      <div class="stat-chip short-chip">▼ <span class="val" id="cnt-short">0</span></div>
+    <main>
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Top 5 Swing Agora</div>
+          <div class="panel-sub" id="top-strip-sub">Aguardando sinais validos</div>
+        </div>
+        <div class="top-list" id="top-list"></div>
+      </section>
 
-      <select class="tf-select" id="tf-select">
-        <option value="15m">15m</option>
-        <option value="1h" selected>1h</option>
-        <option value="4h">4h</option>
-        <option value="1d">1D</option>
-      </select>
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Mosaico de Ativos</div>
+          <div class="panel-sub">Somente setups de swing com alvo fixo</div>
+        </div>
+        <div class="mosaic" id="mosaic"></div>
+      </section>
+    </main>
 
-      <button class="btn btn-analyze" id="btn-analyze" onclick="doAnalyze()">ANALISAR</button>
-      <button class="btn btn-start"   id="btn-start"   onclick="doStart()">▶ INICIAR</button>
-      <button class="btn btn-stop"    id="btn-stop"    onclick="doStop()" style="display:none">■ PARAR</button>
-      <button class="btn btn-analyze" id="btn-sort" onclick="toggleSort()" style="padding:6px 10px;">↕ NOTA</button>
-      <button class="btn btn-analyze" onclick="openConfig()" style="padding:6px 10px;">⚙ CONFIG</button>
-      <button class="btn btn-analyze" onclick="toggleLog()" style="padding:6px 10px;">LOG</button>
+    <div class="status-bar">
+      <span>WS <span id="lbl-ws">--</span></span>
+      <span>ATIVOS <span id="lbl-count">0</span></span>
+      <span>TIMEFRAME <span id="lbl-tf">--</span></span>
+      <span id="lbl-status">Aguardando conexao...</span>
     </div>
-  </header>
-
-  <!-- MAIN -->
-  <div class="main">
-
-    <!-- MOSAIC -->
-    <div class="mosaic-wrap">
-      <div class="mosaic" id="mosaic"></div>
-    </div>
-
-    <!-- LOG PANEL -->
-    <div class="log-panel" id="log-panel">
-      <div class="log-header">
-        <span>● SISTEMA LOG</span>
-        <span class="log-close" onclick="toggleLog()">×</span>
-      </div>
-      <div class="log-list" id="log-list"></div>
-    </div>
-
   </div>
 
-  <!-- STATUS BAR -->
-  <div class="status-bar">
-    <span><div class="dot" id="dot-ws" style="width:6px;height:6px;border-radius:50%;background:var(--text3)"></div> WS: <span id="lbl-ws">--</span></span>
-    <span>ATIVOS: <span id="lbl-count">0</span></span>
-    <span>TIMEFRAME: <span id="lbl-tf">--</span></span>
-    <span id="lbl-status">Aguardando conexão...</span>
-  </div>
+  <script>
+    const SYMBOLS = [
+      "BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT","ADAUSDT",
+      "XLMUSDT","LINKUSDT","HBARUSDT","BCHUSDT","AVAXUSDT",
+      "LTCUSDT","DOTUSDT","UNIUSDT","AAVEUSDT","NEARUSDT",
+      "ETCUSDT","ALGOUSDT","ATOMUSDT","POLUSDT","ARBUSDT",
+      "QNTUSDT","TIAUSDT","OPUSDT","IMXUSDT","GRTUSDT",
+      "LDOUSDT","XTZUSDT",
+    ];
 
-</div><!-- .app -->
+    const state = {
+      connected: false,
+      running: false,
+      signals: {},
+      prices: {},
+      prevPrices: {},
+      stats: { totalSignals: 0, longSignals: 0, shortSignals: 0 },
+      topOpportunities: [],
+      timeframe: "4h",
+    };
 
-<!-- CONFIG MODAL -->
-<div class="modal-overlay" id="modal-config" onclick="e=>e.target===this&&closeConfig()">
-  <div class="modal-box">
-    <div class="modal-title">⚙ CONFIGURAÇÕES</div>
+    let ws = null;
+    let bestSymbol = null;
 
-    <div class="form-group">
-      <label>LUCRO DESEJADO — TAKE PROFIT (%)</label>
-      <input type="number" id="cfg-tp" min="0.1" max="50" step="0.1" placeholder="ex: 3.0" />
-      <div class="form-hint">Distância do preço de entrada até o alvo de lucro (ATR × multiplicador)</div>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label>STOP LOSS (%)</label>
-        <input type="number" id="cfg-sl" min="0.1" max="20" step="0.1" placeholder="ex: 1.5" />
-      </div>
-      <div class="form-group">
-        <label>RISCO POR TRADE (%)</label>
-        <input type="number" id="cfg-risk" min="0.1" max="10" step="0.1" placeholder="ex: 1.0" />
-      </div>
-    </div>
-
-    <hr class="form-sep" />
-
-    <div class="form-row">
-      <div class="form-group">
-        <label>ALAVANCAGEM (×)</label>
-        <input type="number" id="cfg-lev" min="1" max="125" step="1" placeholder="ex: 3" />
-      </div>
-      <div class="form-group">
-        <label>MÁX. TRADES ABERTOS</label>
-        <input type="number" id="cfg-maxtr" min="1" max="10" step="1" placeholder="ex: 1" />
-      </div>
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn-sm btn-cancel" onclick="closeConfig()">CANCELAR</button>
-      <button class="btn-sm btn-save" onclick="saveConfig()">✓ SALVAR</button>
-    </div>
-  </div>
-</div>
-
-<script>
-// ── Symbols & state ──────────────────────────────────────────────────────────
-const SYMBOLS = [
-  "BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT","ADAUSDT",
-  "XLMUSDT","LINKUSDT","HBARUSDT","BCHUSDT","AVAXUSDT",
-  "LTCUSDT","DOTUSDT","UNIUSDT","AAVEUSDT","NEARUSDT",
-  "ETCUSDT","ALGOUSDT","ATOMUSDT","POLUSDT","ARBUSDT",
-  "QNTUSDT","TIAUSDT","OPUSDT","IMXUSDT","GRTUSDT",
-  "LDOUSDT","XTZUSDT",
-];
-
-// Ticker name (remove USDT suffix for display)
-function ticker(sym) { return sym.replace(/USDT$/i, ""); }
-
-// State
-const state = {
-  connected: false,
-  running: false,
-  signals: {},   // symbol -> signal object
-  prices: {},    // symbol -> price
-  prevPrices: {},// symbol -> prev price (for direction)
-  stats: { totalSignals:0, longSignals:0, shortSignals:0 },
-  logOpen: false,
-  sortByScore: false,
-  timeframe: "1h",
-};
-
-// ── Build initial cards ──────────────────────────────────────────────────────
-function buildMosaic() {
-  const grid = document.getElementById("mosaic");
-  grid.innerHTML = "";
-  for (const sym of SYMBOLS) {
-    const card = document.createElement("div");
-    card.className = "crypto-card loading";
-    card.id = `card-${sym}`;
-    card.innerHTML = cardHTML(sym, null, null);
-    card.dataset.score = -1;
-    card.dataset.sig   = "LOAD";
-    grid.appendChild(card);
-  }
-  document.getElementById("lbl-count").textContent = SYMBOLS.length;
-}
-
-function cardHTML(sym, signal, price, isBest = false) {
-  const tk = ticker(sym);
-  const priceStr = price ? formatPrice(sym, price) : "---";
-  const priceClass = "";
-
-  let badgeClass = "LOAD", badgeText = "AGUARD.";
-  let scoreW = 0, scoreTxt = "--";
-  let indHTML = "";
-  let levHTML = "";
-  let timeHTML = "";
-  let cardClass = "loading";
-
-  if (signal) {
-    const s = signal.signal;
-    badgeClass = s;
-    badgeText  = s === "NONE" ? "NEUTRO" : s;
-    cardClass  = s === "LONG" ? "sig-long" : s === "SHORT" ? "sig-short" : "";
-    const maxScore = signal.maxScore || 10;
-    scoreW   = Math.round((signal.score || 0) / maxScore * 100);
-    scoreTxt = `${signal.score||0}/${maxScore}`;
-
-    // Indicators
-    const ind = signal.indicators || {};
-    const rsiVal = ind.rsi != null ? Number(ind.rsi).toFixed(1) : "--";
-    const volVal = ind.volRatio != null ? `${Number(ind.volRatio).toFixed(2)}x` : "--";
-    const rsiClass = rsiVal > 70 ? "up" : rsiVal < 30 ? "down" : "";
-    const volClass = Number(ind.volRatio) > 1.2 ? "up" : "";
-
-    // EMA trend indicator
-    const ema9  = ind.ema9  || ind.emaFast;
-    const ema21 = ind.ema21 || ind.emaSlow;
-    let trendTxt = "–"; let trendClass = "";
-    if (ema9 && ema21) {
-      if (ema9 > ema21) { trendTxt = "↑"; trendClass = "up"; }
-      else               { trendTxt = "↓"; trendClass = "down"; }
+    function ticker(sym) {
+      return String(sym || "").replace(/USDT$/i, "");
     }
 
-    const htf = ind.htfBias || "--";
-    const htfClass = htf === "BULL" ? "up" : htf === "BEAR" ? "down" : "";
-
-    indHTML = `
-      <div class="ind-item"><span>RSI</span><span class="ind-val ${rsiClass}">${rsiVal}</span></div>
-      <div class="ind-item"><span>VOL</span><span class="ind-val ${volClass}">${volVal}</span></div>
-      <div class="ind-item"><span>EMA</span><span class="ind-val ${trendClass}">${trendTxt}</span></div>
-      <div class="ind-item"><span>HTF</span><span class="ind-val ${htfClass}">${htf}</span></div>
-    `;
-
-    if (s !== "NONE" && signal.stopLoss && signal.takeProfit) {
-      levHTML = `
-        <div class="card-levels">
-          <span class="lv-sl">SL ${formatPrice(sym, signal.stopLoss)}</span>
-          <span class="lv-tp">TP ${formatPrice(sym, signal.takeProfit)}</span>
-        </div>`;
+    function formatPrice(sym, price) {
+      if (!price) return "---";
+      const value = Number(price);
+      if (value >= 1000) return "$" + value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      if (value >= 1) return "$" + value.toFixed(4);
+      return "$" + value.toFixed(6);
     }
 
-    if (signal.time) {
-      timeHTML = `<div class="card-time">${relTime(signal.time)}</div>`;
+    function relTime(iso) {
+      if (!iso) return "";
+      const diffMin = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+      if (diffMin < 1) return "agora";
+      if (diffMin < 60) return `ha ${diffMin}m`;
+      const h = Math.floor(diffMin / 60);
+      const m = diffMin % 60;
+      return `ha ${h}h${m ? ` ${m}m` : ""}`;
     }
-  }
 
-  return `
-    ${isBest ? '<span class="best-badge">★ TOP</span>' : ''}
-    <div class="card-top">
-      <div class="card-sym-wrap">
-        <span class="card-sym">${tk}</span>
-        <span class="card-pair">${sym}</span>
-      </div>
-      <span class="sig-badge ${badgeClass}">${badgeText}</span>
-    </div>
-    <div class="card-price ${priceClass}" id="price-${sym}">${priceStr}</div>
-    <div class="score-row">
-      <div class="score-bar"><div class="score-fill" style="width:${scoreW}%"></div></div>
-      <div class="score-txt">${scoreTxt}</div>
-    </div>
-    <div class="card-inds">${indHTML || '<div style="color:var(--text3);font-family:\'Share Tech Mono\',monospace;font-size:10px;grid-column:1/-1;display:flex;align-items:center;gap:6px"><div class="spinner"></div> carregando...</div>'}</div>
-    ${levHTML}
-    ${timeHTML}
-  `;
-}
-
-// ── Update a single card ─────────────────────────────────────────────────────
-function updateCard(sym, signal, price) {
-  const card = document.getElementById(`card-${sym}`);
-  if (!card) return;
-
-  card.className = "crypto-card flash";
-  card.innerHTML = cardHTML(sym, signal, price);
-
-  // Store score/signal for sorting
-  const score = signal?.score ?? -1;
-  const sig   = signal?.signal ?? "LOAD";
-  card.dataset.score = score;
-  card.dataset.sig   = sig;
-
-  let newClass = "crypto-card";
-  if (signal) {
-    if (signal.signal === "LONG")  newClass += " sig-long";
-    if (signal.signal === "SHORT") newClass += " sig-short";
-  }
-  setTimeout(() => {
-    card.className = newClass;
-    if (state.sortByScore) sortMosaic();
-  }, 500);
-}
-
-// Update just the price element (fast path, no full re-render)
-function updatePrice(sym, price) {
-  const el = document.getElementById(`price-${sym}`);
-  if (!el) return;
-  const prev = state.prevPrices[sym];
-  state.prevPrices[sym] = price;
-
-  const str = formatPrice(sym, price);
-  el.textContent = str;
-  el.className = "card-price";
-  if (prev) {
-    if (price > prev) el.className = "card-price up";
-    else if (price < prev) el.className = "card-price down";
-  }
-}
-
-// ── WebSocket ────────────────────────────────────────────────────────────────
-let ws = null;
-const WS_URL = `ws://${location.host}/ws`;
-
-function connect() {
-  setStatus("Conectando...");
-  ws = new WebSocket(WS_URL);
-
-  ws.onopen = () => {
-    setDot("dot-ws", "green");
-    document.getElementById("lbl-ws").textContent = "CONECTADO";
-    setStatus("WS conectado");
-  };
-
-  ws.onclose = () => {
-    setDot("dot-ws", "");
-    document.getElementById("lbl-ws").textContent = "RECONECTANDO";
-    setStatus("WS desconectado — reconectando em 3s...");
-    setTimeout(connect, 3000);
-  };
-
-  ws.onerror = () => {};
-
-  ws.onmessage = (ev) => {
-    try { handleMsg(JSON.parse(ev.data)); } catch(e) {}
-  };
-}
-
-function handleMsg(msg) {
-  const { type, data } = msg;
-
-  if (type === "connected") {
-    state.connected = true;
-    setDot("dot-conn", "green");
-    document.getElementById("lbl-conn").textContent = data.testnet ? "TESTNET" : "LIVE";
-    setStatus("Binance conectada");
-  }
-
-  if (type === "connection_status") {
-    state.connected = data.connected;
-    setDot("dot-conn", data.connected ? "green" : "");
-    document.getElementById("lbl-conn").textContent = data.connected ? (data.testnet ? "TESTNET" : "LIVE") : "DESCONECTADO";
-  }
-
-  if (type === "bot_status") {
-    state.running = data.running;
-    updateRunUI();
-  }
-
-  if (type === "mosaic_state") {
-    state.running = data.running;
-    updateRunUI();
-    if (data.stats) updateStats(data.stats);
-    // Batch update all cards
-    for (const sym of SYMBOLS) {
-      const sig   = data.signals?.[sym] || state.signals[sym] || null;
-      const price = data.prices?.[sym]  || state.prices[sym]  || null;
-      if (sig) state.signals[sym] = sig;
-      if (price) state.prices[sym] = price;
-      updateCard(sym, sig, price);
+    function setStatus(message) {
+      document.getElementById("lbl-status").textContent = message;
     }
-    setStatus(`Mosaico atualizado — ${new Date().toLocaleTimeString("pt-BR")}`);
-    highlightBest();
-  }
 
-  if (type === "signal_update") {
-    const sym = data.symbol;
-    if (!sym) return;
-    state.signals[sym] = data;
-    if (data.signal !== "NONE") {
-      state.stats.totalSignals++;
-      if (data.signal === "LONG")  state.stats.longSignals++;
-      if (data.signal === "SHORT") state.stats.shortSignals++;
-      updateStats(state.stats);
+    function setDot(id, active) {
+      const el = document.getElementById(id);
+      el.className = "dot" + (active ? " green" : "");
     }
-    updateCard(sym, data, state.prices[sym]);
-    highlightBest();
-    if (data.signal !== "NONE") setStatus(`⚡ SINAL ${data.signal} em ${sym} — score ${data.score}/${data.maxScore||10}`);
-  }
 
-  if (type === "tick") {
-    const { symbol, price } = data;
-    if (!symbol || !price) return;
-    state.prices[symbol] = price;
-    updatePrice(symbol, price);
-  }
+    function updateRunUI() {
+      setDot("dot-run", state.running);
+      document.getElementById("lbl-run").textContent = state.running ? "RODANDO" : "PARADO";
+      document.getElementById("btn-start").style.display = state.running ? "none" : "";
+      document.getElementById("btn-stop").style.display = state.running ? "" : "none";
+    }
 
-  if (type === "state") {
-    if (data.running !== undefined) { state.running = data.running; updateRunUI(); }
-    if (data.stats) updateStats(data.stats);
-    if (data.signals) {
-      for (const [sym, sig] of Object.entries(data.signals)) {
-        if (sig) { state.signals[sym] = sig; updateCard(sym, sig, state.prices[sym]); }
+    function updateStats(stats) {
+      if (stats) Object.assign(state.stats, stats);
+      document.getElementById("cnt-total").textContent = state.stats.totalSignals || 0;
+      document.getElementById("cnt-long").textContent = state.stats.longSignals || 0;
+      document.getElementById("cnt-short").textContent = state.stats.shortSignals || 0;
+    }
+
+    function buildMosaic() {
+      const host = document.getElementById("mosaic");
+      host.innerHTML = "";
+      for (const sym of SYMBOLS) {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.id = `card-${sym}`;
+        card.innerHTML = cardHTML(sym, null, null, false);
+        host.appendChild(card);
+      }
+      document.getElementById("lbl-count").textContent = SYMBOLS.length;
+      renderTopOpportunities();
+    }
+
+    function topOpportunityHTML(signal, index) {
+      if (!signal) {
+        return '<div class="top-item empty">Nenhum setup LONG confirmado no momento.</div>';
+      }
+      const targetPct = Number(signal.targetPct || 0).toFixed(1);
+      const rr = signal.riskReward != null ? `${Number(signal.riskReward).toFixed(2)}x` : "--";
+      return `
+        <div class="top-item">
+          <div class="top-item-head">
+            <div>
+              <div class="rank">#${index + 1} SWING</div>
+              <div class="symbol">${ticker(signal.symbol)}</div>
+              <div class="pair">${signal.symbol}</div>
+            </div>
+            <div class="score">${signal.score || 0}/${signal.maxScore || 10}</div>
+          </div>
+          <div class="levels">
+            <div><span class="label">ENTRADA</span><span class="value">${formatPrice(signal.symbol, signal.price)}</span></div>
+            <div><span class="label">VENDER +${targetPct}%</span><span class="value target">${formatPrice(signal.symbol, signal.takeProfit)}</span></div>
+            <div><span class="label">STOP</span><span class="value stop">${formatPrice(signal.symbol, signal.stopLoss)}</span></div>
+            <div><span class="label">SETUP</span><span class="value">${signal.confidence || "--"}</span></div>
+          </div>
+          <div class="meta" style="margin-top:10px;">
+            <div><span class="label">R/R</span><span class="value">${rr}</span></div>
+            <div><span class="label">ATUALIZADO</span><span class="value">${relTime(signal.time)}</span></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTopOpportunities() {
+      const host = document.getElementById("top-list");
+      const label = document.getElementById("top-strip-sub");
+      const items = Array.isArray(state.topOpportunities) ? state.topOpportunities.slice(0, 5) : [];
+      if (!items.length) {
+        host.innerHTML = topOpportunityHTML(null, 0);
+        label.textContent = "Aguardando sinais validos";
+        return;
+      }
+      host.innerHTML = items.map((signal, index) => topOpportunityHTML(signal, index)).join("");
+      label.textContent = `${items.length} setups LONG ativos | melhor: ${items[0].symbol}`;
+    }
+
+    function cardHTML(sym, signal, price, isBest) {
+      const badgeClass = signal?.signal === "LONG" ? "badge long" : "badge none";
+      const badgeLabel = signal?.signal === "LONG" ? "LONG" : "NEUTRO";
+      const score = signal?.score != null ? `${signal.score}/${signal.maxScore || 10}` : "--";
+      const targetPct = Number(signal?.targetPct || 0).toFixed(1);
+      const livePrice = price || signal?.price || null;
+
+      return `
+        <div class="card-head">
+          <div>
+            <div class="symbol">${ticker(sym)}</div>
+            <div class="pair">${sym}</div>
+          </div>
+          <div class="${badgeClass}">${isBest ? "TOP" : badgeLabel}</div>
+        </div>
+        <div class="price" id="price-${sym}">${formatPrice(sym, livePrice)}</div>
+        <div class="info-grid">
+          <div><span class="label">SCORE</span><span class="value">${score}</span></div>
+          <div><span class="label">CONF</span><span class="value">${signal?.confidence || "--"}</span></div>
+          <div><span class="label">STOP</span><span class="value stop">${formatPrice(sym, signal?.stopLoss)}</span></div>
+          <div><span class="label">ALVO +${targetPct}%</span><span class="value target">${formatPrice(sym, signal?.takeProfit)}</span></div>
+        </div>
+        <div class="meta">
+          <div><span class="label">R/R</span><span class="value">${signal?.riskReward != null ? `${Number(signal.riskReward).toFixed(2)}x` : "--"}</span></div>
+          <div><span class="label">HTF</span><span class="value">${signal?.indicators?.htfBias || "--"}</span></div>
+        </div>
+        <div class="card-time">${signal?.time ? relTime(signal.time) : "aguardando dados"}</div>
+      `;
+    }
+
+    function updateCard(sym, signal, price) {
+      const card = document.getElementById(`card-${sym}`);
+      if (!card) return;
+      const isBest = bestSymbol === sym;
+      card.className = "card" + (isBest ? " best" : "");
+      card.innerHTML = cardHTML(sym, signal, price, isBest);
+    }
+
+    function highlightBest() {
+      let nextBest = null;
+      let nextScore = -1;
+      for (const sym of SYMBOLS) {
+        const sig = state.signals[sym];
+        if (!sig || sig.signal !== "LONG") continue;
+        if ((sig.score || 0) > nextScore) {
+          nextScore = sig.score || 0;
+          nextBest = sym;
+        }
+      }
+      bestSymbol = nextBest;
+      for (const sym of SYMBOLS) {
+        updateCard(sym, state.signals[sym] || null, state.prices[sym] || null);
+      }
+      if (nextBest) {
+        const best = state.signals[nextBest];
+        setStatus(`Melhor swing: ${nextBest} | vender em ${formatPrice(nextBest, best.takeProfit)}`);
       }
     }
-    if (data.prices) {
-      for (const [sym, p] of Object.entries(data.prices)) {
-        if (p) { state.prices[sym] = p; updatePrice(sym, p); }
+
+    function connect() {
+      setStatus("Conectando...");
+      ws = new WebSocket(`ws://${location.host}/ws`);
+
+      ws.onopen = () => {
+        setDot("dot-ws", true);
+        document.getElementById("lbl-ws").textContent = "CONECTADO";
+        setStatus("WS conectado");
+      };
+
+      ws.onclose = () => {
+        setDot("dot-ws", false);
+        document.getElementById("lbl-ws").textContent = "RECONECTANDO";
+        setStatus("WS desconectado, tentando novamente...");
+        setTimeout(connect, 3000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          handleMessage(JSON.parse(event.data));
+        } catch (_) {}
+      };
+    }
+
+    function handleMessage(msg) {
+      const { type, data } = msg;
+
+      if (type === "connected") {
+        state.connected = true;
+        setDot("dot-conn", true);
+        document.getElementById("lbl-conn").textContent = data.testnet ? "TESTNET" : "LIVE";
+      }
+
+      if (type === "connection_status") {
+        state.connected = !!data.connected;
+        setDot("dot-conn", !!data.connected);
+        document.getElementById("lbl-conn").textContent = data.connected ? (data.testnet ? "TESTNET" : "LIVE") : "DESCONECTADO";
+      }
+
+      if (type === "bot_status") {
+        state.running = !!data.running;
+        updateRunUI();
+      }
+
+      if (type === "config" && data.timeframe) {
+        state.timeframe = data.timeframe;
+        document.getElementById("lbl-tf").textContent = String(data.timeframe).toUpperCase();
+      }
+
+      if (type === "mosaic_state") {
+        state.running = !!data.running;
+        updateRunUI();
+        updateStats(data.stats);
+        state.topOpportunities = Array.isArray(data.topOpportunities) ? data.topOpportunities : [];
+        for (const sym of SYMBOLS) {
+          if (data.signals?.[sym]) state.signals[sym] = data.signals[sym];
+          if (data.prices?.[sym]) state.prices[sym] = data.prices[sym];
+        }
+        renderTopOpportunities();
+        highlightBest();
+      }
+
+      if (type === "signal_update" && data.symbol) {
+        state.signals[data.symbol] = data;
+        state.topOpportunities = Object.values(state.signals)
+          .filter((sig) => sig && sig.signal === "LONG")
+          .sort((a, b) => {
+            if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+            return (b.riskReward || 0) - (a.riskReward || 0);
+          })
+          .slice(0, 5);
+        renderTopOpportunities();
+        highlightBest();
+      }
+
+      if (type === "tick" && data.symbol && data.price) {
+        state.prices[data.symbol] = data.price;
+        updateCard(data.symbol, state.signals[data.symbol] || null, data.price);
+      }
+
+      if (type === "state") {
+        if (data.running !== undefined) {
+          state.running = !!data.running;
+          updateRunUI();
+        }
+        updateStats(data.stats);
+        if (data.signals) state.signals = { ...state.signals, ...data.signals };
+        if (data.prices) state.prices = { ...state.prices, ...data.prices };
+        if (Array.isArray(data.topOpportunities)) state.topOpportunities = data.topOpportunities;
+        renderTopOpportunities();
+        highlightBest();
       }
     }
-  }
 
-  if (type === "config") {
-    _cfg = { ..._cfg, ...data }; // manter cache sincronizado
-    if (data.timeframe) {
-      state.timeframe = data.timeframe;
-      document.getElementById("tf-select").value = data.timeframe;
-      document.getElementById("lbl-tf").textContent = data.timeframe.toUpperCase();
+    async function doStart() {
+      try {
+        const response = await fetch("/api/bot/start", { method: "POST" });
+        const data = await response.json();
+        if (!data.ok) alert(data.msg || data.error || "Falha ao iniciar");
+      } catch (error) {
+        alert("Erro: " + error.message);
+      }
     }
-  }
 
-  if (type === "log") {
-    addLog(data);
-  }
-}
-
-// ── UI helpers ───────────────────────────────────────────────────────────────
-function setDot(id, cls) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.className = "dot" + (cls ? " " + cls : "");
-}
-
-function updateRunUI() {
-  const running = state.running;
-  document.getElementById("dot-run").className = "dot" + (running ? " green" : " red");
-  document.getElementById("lbl-run").textContent = running ? "RODANDO" : "PARADO";
-  document.getElementById("btn-start").style.display = running ? "none" : "";
-  document.getElementById("btn-stop").style.display  = running ? "" : "none";
-}
-
-function updateStats(stats) {
-  if (stats) Object.assign(state.stats, stats);
-  document.getElementById("cnt-total").textContent = state.stats.totalSignals || 0;
-  document.getElementById("cnt-long").textContent  = state.stats.longSignals  || 0;
-  document.getElementById("cnt-short").textContent = state.stats.shortSignals || 0;
-}
-
-function setStatus(msg) {
-  document.getElementById("lbl-status").textContent = msg;
-}
-
-function addLog(entry) {
-  const list = document.getElementById("log-list");
-  const div  = document.createElement("div");
-  div.className = "log-entry " + (entry.level || "");
-  const t = entry.time ? new Date(entry.time).toLocaleTimeString("pt-BR") : "";
-  div.innerHTML = `<span class="log-time">${t}</span>${escHtml(entry.msg)}`;
-  list.prepend(div);
-  while (list.children.length > 200) list.removeChild(list.lastChild);
-}
-
-// ── Sort mosaic by score ─────────────────────────────────────────────────────
-function sortMosaic() {
-  const grid = document.getElementById("mosaic");
-  const cards = [...grid.children];
-
-  cards.sort((a, b) => {
-    const sigOrder = { LONG: 0, SHORT: 0, NONE: 1, LOAD: 2 };
-    const aOrd = sigOrder[a.dataset.sig] ?? 2;
-    const bOrd = sigOrder[b.dataset.sig] ?? 2;
-    if (aOrd !== bOrd) return aOrd - bOrd;
-    return (parseFloat(b.dataset.score) || 0) - (parseFloat(a.dataset.score) || 0);
-  });
-
-  cards.forEach(c => grid.appendChild(c)); // rearrange DOM (appendChild moves)
-}
-
-function toggleSort() {
-  state.sortByScore = !state.sortByScore;
-  const btn = document.getElementById("btn-sort");
-  if (state.sortByScore) {
-    btn.style.borderColor = "var(--accent)";
-    btn.style.color = "var(--accent)";
-    btn.style.background = "rgba(0,200,255,.18)";
-    sortMosaic();
-    setStatus("Ordenação por nota ativada");
-  } else {
-    btn.style.borderColor = "";
-    btn.style.color = "";
-    btn.style.background = "";
-    // Restaurar ordem original
-    const grid = document.getElementById("mosaic");
-    const cards = [...grid.children];
-    cards.sort((a, b) => SYMBOLS.indexOf(a.id.replace("card-","")) - SYMBOLS.indexOf(b.id.replace("card-","")));
-    cards.forEach(c => grid.appendChild(c));
-    setStatus("Ordenação original restaurada");
-  }
-}
-
-// ── Destaque da melhor oportunidade ─────────────────────────────────────────
-let _bestSym = null;
-
-function highlightBest() {
-  // Encontrar símbolo com maior score entre LONG/SHORT
-  let bestSym = null, bestScore = -1;
-  for (const sym of SYMBOLS) {
-    const sig = state.signals[sym];
-    if (!sig || sig.signal === "NONE") continue;
-    const score = sig.score ?? 0;
-    if (score > bestScore) { bestScore = score; bestSym = sym; }
-  }
-
-  // Remover destaque anterior
-  if (_bestSym && _bestSym !== bestSym) {
-    const prev = document.getElementById(`card-${_bestSym}`);
-    if (prev) {
-      prev.classList.remove("card-best");
-      // Re-renderizar sem badge TOP
-      const sig = state.signals[_bestSym];
-      const price = state.prices[_bestSym];
-      prev.innerHTML = cardHTML(_bestSym, sig, price, false);
+    async function doStop() {
+      try {
+        await fetch("/api/bot/stop", { method: "POST" });
+      } catch (error) {
+        alert("Erro: " + error.message);
+      }
     }
-  }
 
-  // Aplicar destaque no novo melhor
-  if (bestSym) {
-    const card = document.getElementById(`card-${bestSym}`);
-    if (card) {
-      card.classList.add("card-best");
-      const sig = state.signals[bestSym];
-      const price = state.prices[bestSym];
-      card.innerHTML = cardHTML(bestSym, sig, price, true);
-    }
-    if (bestSym !== _bestSym) {
-      setStatus(`★ Melhor oportunidade: ${bestSym} | Score ${bestScore}/${state.signals[bestSym]?.maxScore || 10} | ${state.signals[bestSym]?.signal}`);
-    }
-  }
+    setInterval(() => {
+      renderTopOpportunities();
+      highlightBest();
+    }, 30000);
 
-  _bestSym = bestSym;
-}
-
-function toggleLog() {
-  state.logOpen = !state.logOpen;
-  document.getElementById("log-panel").classList.toggle("open", state.logOpen);
-}
-
-// ── Config modal ─────────────────────────────────────────────────────────────
-let _cfg = {};  // cache da config atual
-
-function openConfig() {
-  // Preencher campos com valores atuais (busca do server)
-  fetch("/api/config").then(r => r.json()).then(cfg => {
-    _cfg = cfg;
-    document.getElementById("cfg-tp").value    = cfg.takeProfitPct ?? "";
-    document.getElementById("cfg-sl").value    = cfg.stopLossPct   ?? "";
-    document.getElementById("cfg-risk").value  = cfg.riskPerTrade  ?? "";
-    document.getElementById("cfg-lev").value   = cfg.leverage      ?? "";
-    document.getElementById("cfg-maxtr").value = cfg.maxOpenTrades  ?? "";
-  }).catch(() => {});
-  document.getElementById("modal-config").classList.add("open");
-}
-
-function closeConfig() {
-  document.getElementById("modal-config").classList.remove("open");
-}
-
-async function saveConfig() {
-  const tp    = parseFloat(document.getElementById("cfg-tp").value);
-  const sl    = parseFloat(document.getElementById("cfg-sl").value);
-  const risk  = parseFloat(document.getElementById("cfg-risk").value);
-  const lev   = parseInt(document.getElementById("cfg-lev").value);
-  const maxtr = parseInt(document.getElementById("cfg-maxtr").value);
-
-  const body = {};
-  if (!isNaN(tp))    body.takeProfitPct = tp;
-  if (!isNaN(sl))    body.stopLossPct   = sl;
-  if (!isNaN(risk))  body.riskPerTrade  = risk;
-  if (!isNaN(lev))   body.leverage      = lev;
-  if (!isNaN(maxtr)) body.maxOpenTrades = maxtr;
-
-  try {
-    const res = await fetch("/api/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (data.error) { alert("Erro: " + data.error); return; }
-    closeConfig();
-    setStatus(`✓ Config salva — TP: ${body.takeProfitPct ?? _cfg.takeProfitPct}% | SL: ${body.stopLossPct ?? _cfg.stopLossPct}%`);
-  } catch (e) {
-    alert("Erro ao salvar: " + e.message);
-  }
-}
-
-// Fechar modal ao clicar fora
-document.getElementById("modal-config").addEventListener("click", function(e) {
-  if (e.target === this) closeConfig();
-});
-
-// ── API calls ────────────────────────────────────────────────────────────────
-async function doStart() {
-  try {
-    const res = await fetch("/api/bot/start", { method:"POST" });
-    const data = await res.json();
-    if (!data.ok) alert(data.msg || data.error);
-  } catch(e) { alert("Erro: " + e.message); }
-}
-
-async function doStop() {
-  try {
-    await fetch("/api/bot/stop", { method:"POST" });
-  } catch(e) { alert("Erro: " + e.message); }
-}
-
-async function doAnalyze() {
-  try {
-    await fetch("/api/bot/analyze", { method:"POST" });
-    setStatus("Análise solicitada...");
-  } catch(e) {}
-}
-
-// Timeframe change
-document.getElementById("tf-select").addEventListener("change", async (e) => {
-  const tf = e.target.value;
-  state.timeframe = tf;
-  document.getElementById("lbl-tf").textContent = tf.toUpperCase();
-  try {
-    await fetch("/api/config", {
-      method:"PUT",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ timeframe: tf }),
-    });
-    setStatus(`Timeframe alterado para ${tf} — aguardando novos candles...`);
-  } catch(err) {}
-});
-
-// ── Formatting ───────────────────────────────────────────────────────────────
-function formatPrice(sym, price) {
-  if (!price) return "---";
-  const p = Number(price);
-  if (p >= 1000)  return "$" + p.toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 });
-  if (p >= 1)     return "$" + p.toFixed(4);
-  return "$" + p.toFixed(6);
-}
-
-function relTime(iso) {
-  if (!iso) return "";
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1)  return "agora";
-  if (m < 60) return `há ${m}m`;
-  const h = Math.floor(m / 60);
-  return `há ${h}h${m%60 > 0 ? ` ${m%60}m` : ""}`;
-}
-
-function escHtml(s) {
-  return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-}
-
-// ── Refresh relative times every 30s ────────────────────────────────────────
-setInterval(() => {
-  for (const sym of SYMBOLS) {
-    const el = document.querySelector(`#card-${sym} .card-time`);
-    const sig = state.signals[sym];
-    if (el && sig?.time) el.textContent = relTime(sig.time);
-  }
-}, 30000);
-
-// ── Init ─────────────────────────────────────────────────────────────────────
-buildMosaic();
-connect();
-
-// Add analyze endpoint support (server.js may need it)
-// POST /api/bot/analyze → calls analyzeNow on the bot
-</script>
+    buildMosaic();
+    connect();
+  </script>
 </body>
 </html>
