@@ -13,12 +13,14 @@ const DEFAULT_SYMBOLS = [
 ];
 
 class SignalAdvisor {
-  constructor(binanceClient, config, broadcastFn) {
+  constructor(binanceClient, config, broadcastFn, notifier = null) {
     this.client = binanceClient;
     this.config = config;
     this.broadcast = broadcastFn || (() => {});
+    this.notifier = notifier;
     this.strategy = new ConservativeStrategy(config);
     this.symbols = this._buildSymbolList();
+    this.lastAlertMap = {};
 
     this.state = {
       running: false,
@@ -39,9 +41,53 @@ class SignalAdvisor {
   _buildSymbolList() {
     const extra = Array.isArray(this.config.scanSymbols)
       ? this.config.scanSymbols.map((s) => String(s).toUpperCase().trim()).filter(Boolean)
-      : [];
-    const set = new Set([...DEFAULT_SYMBOLS, ...extra]);
+      : DEFAULT_SYMBOLS;
+    const set = new Set(extra.length ? extra : DEFAULT_SYMBOLS);
     return [...set];
+  }
+
+  _resetSymbolState(symbols) {
+    this.state.candlesMap = {};
+    this.state.signalsMap = {};
+    this.state.priceMap = {};
+    for (const sym of symbols) {
+      this.state.candlesMap[sym] = [];
+      this.state.signalsMap[sym] = null;
+      this.state.priceMap[sym] = null;
+    }
+  }
+
+  async _reloadSymbols() {
+    this.symbols = this._buildSymbolList();
+    this._resetSymbolState(this.symbols);
+
+    if (typeof this.client.closeAllStreams === "function") {
+      this.client.closeAllStreams();
+    }
+
+    for (const sym of this.symbols) {
+      try {
+        this.state.candlesMap[sym] = await this.client.getKlines(
+          sym,
+          this.config.timeframe || "4h",
+          250,
+        );
+        this._analyzeSymbol(sym);
+      } catch (e) {
+        this.log(`⚠️ ${sym}: erro ao carregar ativo`, "warn");
+      }
+    }
+
+    for (const sym of this.symbols) {
+      this._startKlineStream(sym);
+      this.client.subscribeTicker(sym, (tick) => {
+        const price = parseFloat(tick.c);
+        this.state.priceMap[sym] = price;
+        this.broadcast({ type: "tick", data: { symbol: sym, price } });
+      });
+    }
+
+    this._broadcastMosaicState();
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -122,6 +168,7 @@ class SignalAdvisor {
     if (!candles || candles.length < 210) return;
 
     try {
+      const previousSignal = this.state.signalsMap[symbol];
       const signal = this.strategy.getSignal(candles);
       const lastCandle = candles[candles.length - 1];
       const signalData = {
@@ -145,12 +192,43 @@ class SignalAdvisor {
           `${emoji} SINAL: ${signal.signal} ${symbol} | Score: ${signal.score}/${signal.maxScore || 10} | $${signalData.price?.toFixed(4)}`,
         );
       }
+      if (this._shouldSendTelegramAlert(previousSignal, signalData)) {
+        this._notifyTelegram(signalData);
+      }
     } catch (e) {
       this.log(`❌ Analyze ${symbol}: ${e.message}`, "error");
     }
   }
 
   // ── Broadcast do estado completo do mosaico ────────────────────────────────
+  _shouldSendTelegramAlert(previousSignal, signalData) {
+    if (!this.notifier || !signalData || signalData.signal === "NONE") return false;
+
+    const alertKey = [
+      signalData.symbol,
+      signalData.signal,
+      Number(signalData.price || 0).toFixed(8),
+      Number(signalData.takeProfit || 0).toFixed(8),
+      Number(signalData.stopLoss || 0).toFixed(8),
+    ].join("|");
+
+    const previousKey = this.lastAlertMap[signalData.symbol];
+    const signalChanged =
+      !previousSignal ||
+      previousSignal.signal !== signalData.signal ||
+      Number(previousSignal.takeProfit || 0) !== Number(signalData.takeProfit || 0) ||
+      Number(previousSignal.stopLoss || 0) !== Number(signalData.stopLoss || 0);
+
+    if (!signalChanged || previousKey === alertKey) return false;
+    this.lastAlertMap[signalData.symbol] = alertKey;
+    return true;
+  }
+
+  async _notifyTelegram(signalData) {
+    const sent = await this.notifier.sendEntry(signalData);
+    if (sent) this.log(`Telegram enviado para ${signalData.symbol}`);
+  }
+
   _broadcastMosaicState() {
     this.broadcast({
       type: "mosaic_state",
@@ -201,7 +279,7 @@ class SignalAdvisor {
 
   getTopOpportunities(limit = 5) {
     return Object.values(this.state.signalsMap)
-      .filter((signal) => signal && signal.signal === "LONG")
+      .filter((signal) => signal && signal.signal !== "NONE")
       .sort((a, b) => {
         if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
         return (b.riskReward || 0) - (a.riskReward || 0);
@@ -215,8 +293,18 @@ class SignalAdvisor {
 
   async updateConfig(cfg) {
     const prevTimeframe = this.config.timeframe;
+    const prevSymbols = JSON.stringify(this.symbols);
     this.config = { ...this.config, ...cfg };
     this.strategy = new ConservativeStrategy(this.config);
+    const nextSymbols = this._buildSymbolList();
+    const symbolsChanged = JSON.stringify(nextSymbols) !== prevSymbols;
+
+    if (this.state.running && symbolsChanged) {
+      this.log(`🔄 Ativos monitorados atualizados: ${nextSymbols.join(", ")}`);
+      await this._reloadSymbols();
+      this.log(`⚙️ Config atualizada`);
+      return;
+    }
 
     if (this.state.running && prevTimeframe !== this.config.timeframe) {
       this.log(`🔄 Timeframe alterado: ${prevTimeframe} → ${this.config.timeframe}`);

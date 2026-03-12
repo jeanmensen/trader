@@ -8,6 +8,7 @@ const path = require("path");
 const logger = require("./logger");
 const BinanceClient = require("./binanceClient");
 const SignalAdvisor = require("./bot");
+const TelegramNotifier = require("./telegramNotifier");
 const fs = require("fs");
 
 if (!fs.existsSync("logs")) fs.mkdirSync("logs");
@@ -24,6 +25,11 @@ app.use(express.static(path.join(__dirname, "../frontend")));
 let binance = null;
 let bot = null;
 const clients = new Set();
+const telegramNotifier = new TelegramNotifier({
+  enabled: process.env.TELEGRAM_ENABLED !== "false",
+  token: process.env.TELEGRAM_BOT_TOKEN,
+  chatId: process.env.TELEGRAM_CHAT_ID,
+});
 
 function parseSymbolsList(raw, fallback = []) {
   const arr = Array.isArray(raw)
@@ -45,6 +51,7 @@ function parseSymbolsList(raw, fallback = []) {
 let botConfig = {
   symbol: process.env.DEFAULT_SYMBOL || "BTCUSDT",
   timeframe: process.env.DEFAULT_TIMEFRAME || "4h",
+  tradeDirection: String(process.env.TRADE_DIRECTION || "LONG").toUpperCase(),
   leverage: parseInt(process.env.DEFAULT_LEVERAGE || "2"),
   riskPerTrade: parseFloat(process.env.RISK_PER_TRADE || "0.5"),
   stopLossPct: parseFloat(process.env.STOP_LOSS_PCT || "1.2"),
@@ -140,6 +147,19 @@ app.post("/api/reconnect", (req, res) => {
   res.json({ ok: !!binance, connected: !!binance, testnet: botConfig.testnet });
 });
 
+app.post("/api/telegram/test", async (req, res) => {
+  if (!telegramNotifier.isReady()) {
+    return res.status(400).json({ error: "Telegram nao configurado no .env" });
+  }
+
+  const sent = await telegramNotifier.sendTestMessage();
+  if (!sent) {
+    return res.status(500).json({ error: "Falha ao enviar mensagem de teste" });
+  }
+
+  res.json({ ok: true });
+});
+
 // Get config
 app.get("/api/config", (req, res) => res.json(botConfig));
 
@@ -148,6 +168,7 @@ app.put("/api/config", async (req, res) => {
   const { leverage, riskPerTrade, stopLossPct, takeProfitPct, maxOpenTrades } =
     req.body;
   let scanSymbols = req.body?.scanSymbols;
+  let tradeDirection = req.body?.tradeDirection;
   if (leverage !== undefined && (leverage < 1 || leverage > 125))
     return res.status(400).json({ error: "leverage deve ser entre 1 e 125" });
   if (riskPerTrade !== undefined && (riskPerTrade <= 0 || riskPerTrade > 10))
@@ -173,9 +194,17 @@ app.put("/api/config", async (req, res) => {
     }
   }
 
+  if (tradeDirection !== undefined) {
+    tradeDirection = String(tradeDirection).toUpperCase().trim();
+    if (!["LONG", "SHORT", "BOTH"].includes(tradeDirection)) {
+      return res.status(400).json({ error: "tradeDirection deve ser LONG, SHORT ou BOTH" });
+    }
+  }
+
   botConfig = {
     ...botConfig,
     ...req.body,
+    tradeDirection: tradeDirection !== undefined ? tradeDirection : botConfig.tradeDirection,
     scanSymbols:
       scanSymbols !== undefined
         ? scanSymbols
@@ -200,7 +229,7 @@ app.post("/api/bot/start", async (req, res) => {
           error:
             "Binance não conectada. Verifique o .env e reinicie o servidor.",
         });
-    if (!bot) bot = new SignalAdvisor(binance, botConfig, broadcast);
+    if (!bot) bot = new SignalAdvisor(binance, botConfig, broadcast, telegramNotifier);
     const result = await bot.start();
     res.json(result);
   } catch (e) {

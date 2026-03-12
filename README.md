@@ -1,150 +1,217 @@
 # Nexus Signal
 
-**NexusSignal** é um gerador de sinais de trading para **Binance Futures** que monitora múltiplos ativos simultaneamente e identifica oportunidades de trade com base em análise técnica.
+`Nexus Signal` e um painel de sinais para `swing trade` em criptomoedas na Binance Futures.
 
-> Modo sinal: o sistema analisa o mercado e gera recomendações — **não executa ordens automaticamente**.
+O projeto monitora um conjunto configuravel de moedas, identifica setups de `LONG`, `SHORT` ou `BOTH`, calcula `stop loss`, `alvo fixo` e exibe as melhores oportunidades em tempo real.
 
----
+> O sistema gera sinais. Ele nao executa ordens automaticamente.
 
-## Visão Geral
+## O que o projeto faz hoje
 
-O NexusSignal (internamente chamado de "Mosaic") exibe um grid com até 27+ criptomoedas em tempo real, destacando as melhores oportunidades de LONG e SHORT conforme os sinais são gerados.
+- Monitora apenas as moedas selecionadas no painel
+- Permite operar em modo `LONG`, `SHORT` ou `BOTH`
+- Usa alvo padrao de `3%`
+- Calcula `stop`, `risk/reward`, `score` e `confianca`
+- Mostra um bloco `Top 5 Swing Agora`
+- Exibe os precos em `USD` e `BRL`
+- Atualiza dados via WebSocket
+- Envia alerta no Telegram quando surge uma nova entrada valida
 
-![Dashboard](https://i.imgur.com/placeholder.png)
+## Estrategia atual
 
----
+A logica principal esta em [backend/strategy.js](/abs/path/c:/Users/jeanm/Desktop/NexusSignal/backend/strategy.js).
 
-## Funcionalidades
+O motor trabalha com leitura de tendencia e pullback:
 
-- **Monitoramento multi-símbolo** — acompanha BTC, ETH, SOL, XRP, ADA e outros 20+ pares simultaneamente
-- **Estratégia conservadora com 5 pilares:**
-  1. Tendência (EMAs rápida/lenta/longa/filtro)
-  2. Momentum (RSI com zonas de alta e baixa)
-  3. Posição de Preço (Bollinger Bands)
-  4. Regime de Mercado (expansão das BBs)
-  5. Confirmação de Volume (1.2× média)
-- **Sistema de pontuação** — sinais exigem score mínimo de 6/10 para serem gerados
-- **Sinais LONG e SHORT** com níveis de stop-loss e take-profit calculados
-- **Dashboard em tempo real** via WebSocket com grid colorido (verde = LONG, vermelho = SHORT)
-- **Configuração via UI** — alavancagem, risco, SL%, TP%, timeframe e mais
-- **Persistência opcional** com PostgreSQL para histórico de sinais
+- `LONG`: procura tendencia de alta, recuo em zona de valor e retomada
+- `SHORT`: procura tendencia de baixa, repique em zona de valor e rejeicao
+- `BOTH`: habilita os dois lados e ranqueia os melhores setups
 
----
+Quando um sinal e aprovado, o sistema retorna:
 
-## Tech Stack
+- `signal`
+- `setup`
+- `price`
+- `stopLoss`
+- `takeProfit`
+- `targetPct`
+- `riskReward`
+- `score`
+- `confidence`
 
-| Camada | Tecnologias |
-|--------|-------------|
-| Backend | Node.js, Express, WebSocket (ws), Axios |
-| Indicadores | EMA, RSI, Bollinger Bands, ATR (`technicalindicators`) |
-| Frontend | Vue.js 3 (CDN), CSS customizado (tema dark) |
-| Dados | Binance Futures API (REST + WebSocket) |
-| Banco (opcional) | PostgreSQL |
-| Outros | Winston (logs), dotenv, node-cron |
+## Interface atual
 
----
+O frontend fica em [frontend/index.html](/abs/path/c:/Users/jeanm/Desktop/NexusSignal/frontend/index.html).
 
-## Instalação
+O painel tem tres areas principais:
 
-### Pré-requisitos
+1. `Moedas Monitoradas`
+2. `Top 5 Swing Agora`
+3. `Mosaico de Ativos`
 
-- Node.js 18+
-- Conta na Binance com API habilitada para Futures
-- (Opcional) PostgreSQL
+Recursos atuais da UI:
 
-### Passos
+- selecao de moedas por checkbox
+- seletor de direcao: `LONG`, `SHORT` ou `LONG + SHORT`
+- salvar configuracao sem reiniciar a aplicacao
+- iniciar e parar o monitoramento
+- destaque da melhor oportunidade atual
+- exibicao de preco em dolar e em real
+- cards com `score`, `stop`, `alvo`, `R/R` e viés `HTF`
 
-```bash
-# 1. Clone o repositório
-git clone https://github.com/seu-usuario/NexusSignal.git
-cd NexusSignal/backend
+## Alertas no Telegram
 
-# 2. Instale as dependências
-npm install
+O backend envia notificacoes para o Telegram quando aparece uma nova entrada valida.
 
-# 3. Configure as variáveis de ambiente
-cp .env.example .env
-# Edite o .env com suas credenciais
-```
+Arquivo principal:
+- [backend/telegramNotifier.js](/abs/path/c:/Users/jeanm/Desktop/NexusSignal/backend/telegramNotifier.js)
 
-### Configuração do `.env`
+Os alertas funcionam para:
+
+- `LONG`
+- `SHORT`
+
+Variaveis esperadas no `backend/.env`:
 
 ```env
-# Binance
-BINANCE_API_KEY=sua_chave_aqui
-BINANCE_API_SECRET=seu_secret_aqui
-USE_TESTNET=true          # true para testnet, false para conta real
-
-# Parâmetros padrão
-DEFAULT_TIMEFRAME=15m
-DEFAULT_LEVERAGE=3
-RISK_PER_TRADE=1.5
-STOP_LOSS_PCT=1.5
-TAKE_PROFIT_PCT=3.0
-
-# PostgreSQL (opcional)
-PGHOST=localhost
-PGPORT=5432
-PGUSER=postgres
-PGPASSWORD=sua_senha
-PGDATABASE=trades
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=seu_token_aqui
+TELEGRAM_CHAT_ID=seu_chat_id_aqui
 ```
 
----
+Existe tambem um endpoint de teste:
 
-## Uso
+- `POST /api/telegram/test`
+
+## Stack
+
+| Camada | Tecnologias |
+|---|---|
+| Backend | Node.js, Express, WebSocket (`ws`), Axios |
+| Indicadores | `technicalindicators` |
+| Frontend | HTML, CSS e JavaScript vanilla |
+| Dados | Binance Futures REST + WebSocket |
+| Persistencia opcional | PostgreSQL |
+| Logs | Winston |
+
+## Estrutura do projeto
+
+```text
+NexusSignal/
+|-- backend/
+|   |-- server.js
+|   |-- bot.js
+|   |-- strategy.js
+|   |-- telegramNotifier.js
+|   |-- binanceClient.js
+|   |-- tradeStore.js
+|   |-- db.js
+|   |-- logger.js
+|   `-- package.json
+|-- frontend/
+|   `-- index.html
+`-- README.md
+```
+
+## Requisitos
+
+- `Node.js 18+`
+- conta Binance com API configurada para Futures
+- opcionalmente PostgreSQL, se quiser persistencia
+
+## Instalacao
 
 ```bash
-# Desenvolvimento (com hot-reload via nodemon)
-npm run dev
+git clone <seu-repo>
+cd NexusSignal/backend
+npm install
+```
 
-# Produção
+Crie e ajuste o arquivo `.env` em `backend/.env`.
+
+Exemplo:
+
+```env
+BINANCE_API_KEY=sua_chave
+BINANCE_API_SECRET=seu_segredo
+USE_TESTNET=true
+
+DEFAULT_SYMBOL=BTCUSDT
+DEFAULT_TIMEFRAME=4h
+TRADE_DIRECTION=LONG
+DEFAULT_LEVERAGE=2
+RISK_PER_TRADE=0.5
+STOP_LOSS_PCT=1.2
+TAKE_PROFIT_PCT=3.0
+MAX_OPEN_TRADES=1
+
+SCAN_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT,ARBUSDT
+
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=seu_token_aqui
+TELEGRAM_CHAT_ID=seu_chat_id_aqui
+```
+
+Valores aceitos para `TRADE_DIRECTION`:
+
+- `LONG`
+- `SHORT`
+- `BOTH`
+
+## Como executar
+
+No diretorio `backend`:
+
+```bash
+npm run dev
+```
+
+ou:
+
+```bash
 npm start
 ```
 
-Acesse o dashboard em: **http://localhost:3001**
+Depois abra:
 
-1. Clique em **INICIAR ADVISOR** para começar o monitoramento
-2. O bot carrega 250 candles históricos por símbolo
-3. Assina os streams de kline e ticker em tempo real
-4. Gera sinais conforme os candles fecham
-
----
-
-## API
-
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/api/health` | Status do servidor |
-| POST | `/api/bot/start` | Inicia o advisor |
-| POST | `/api/bot/stop` | Para o advisor |
-| GET | `/api/bot/state` | Estado atual e sinais |
-| GET | `/api/account` | Saldo na Binance |
-| GET | `/api/signal/:symbol` | Sinal para um símbolo |
-| PUT | `/api/config` | Atualiza configuração |
-| POST | `/api/reconnect` | Reconecta à Binance |
-
----
-
-## Estrutura do Projeto
-
-```
-NexusSignal/
-├── backend/
-│   ├── server.js          # Servidor Express + WebSocket
-│   ├── bot.js             # SignalAdvisor (core do monitoramento)
-│   ├── strategy.js        # ConservativeStrategy (análise técnica)
-│   ├── binanceClient.js   # Wrapper da API Binance
-│   ├── db.js              # Conexão PostgreSQL
-│   ├── tradeStore.js      # ORM para histórico de trades
-│   ├── logger.js          # Winston logger
-│   └── package.json
-└── frontend/
-    └── index.html         # SPA Vue.js 3
+```text
+http://localhost:3001
 ```
 
----
+## Fluxo de uso
+
+1. Abra o painel
+2. Selecione as moedas que deseja monitorar
+3. Escolha a direcao de operacao: `LONG`, `SHORT` ou `LONG + SHORT`
+4. Clique em `SALVAR MOEDAS`
+5. Clique em `INICIAR`
+6. Acompanhe o `Top 5` e o mosaico
+7. Receba alertas no Telegram quando houver nova entrada
+
+## API principal
+
+| Metodo | Rota | Uso |
+|---|---|---|
+| `GET` | `/api/health` | status do servidor |
+| `GET` | `/api/config` | configuracao atual |
+| `PUT` | `/api/config` | atualiza `scanSymbols`, `tradeDirection` e outros parametros |
+| `POST` | `/api/bot/start` | inicia o monitoramento |
+| `POST` | `/api/bot/stop` | para o monitoramento |
+| `GET` | `/api/bot/state` | estado atual do painel |
+| `POST` | `/api/reconnect` | reconecta a Binance |
+| `GET` | `/api/account` | consulta saldo |
+| `POST` | `/api/telegram/test` | envia mensagem de teste no Telegram |
+
+## Observacoes importantes
+
+- O projeto esta focado em `sinais`, nao em execucao automatica
+- A selecao de moedas do frontend usa `scanSymbols`, que o backend reaplica em runtime
+- A direcao de operacao usa `tradeDirection` e pode ser alterada sem reiniciar o servidor
+- Os niveis de `stop` e `take profit` usam precisao dinamica para moedas baratas
+- O valor em `BRL` no frontend depende da cotacao `USD/BRL` consultada no navegador
 
 ## Aviso
 
-Este projeto é para fins educacionais e de análise. **Não é conselho financeiro.** Trading de criptomoedas envolve risco significativo de perda. Use testnet antes de conectar a uma conta real.
+Este projeto e para fins educacionais e de analise. Nao e conselho financeiro.
+
+Criptomoedas e derivativos envolvem risco alto. Use testnet antes de conectar a conta real.

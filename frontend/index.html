@@ -111,6 +111,7 @@
     .btn:hover { transform: translateY(-1px); }
     .btn-start { color: var(--green); border-color: rgba(0, 229, 139, 0.35); }
     .btn-stop { color: var(--red); border-color: rgba(255, 92, 114, 0.35); }
+    .btn-config { color: var(--accent); border-color: rgba(55, 200, 255, 0.35); }
 
     main {
       flex: 1;
@@ -153,6 +154,65 @@
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 12px;
       padding: 14px;
+    }
+
+    .symbol-config {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .symbol-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .direction-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .direction-select {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 4px;
+      padding: 8px 12px;
+      font: inherit;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .symbol-help {
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+    }
+
+    .symbol-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 10px;
+    }
+
+    .symbol-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(29, 60, 97, 0.85);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: "Share Tech Mono", monospace;
+      font-size: 12px;
+    }
+
+    .symbol-option input {
+      accent-color: var(--accent);
     }
 
     .top-item,
@@ -257,6 +317,11 @@
       border-color: rgba(0, 229, 139, 0.35);
     }
 
+    .badge.short {
+      color: var(--red);
+      border-color: rgba(255, 92, 114, 0.35);
+    }
+
     .badge.none {
       color: var(--muted);
     }
@@ -265,6 +330,13 @@
       font-family: "Share Tech Mono", monospace;
       font-size: 18px;
       color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .price-brl {
+      font-family: "Share Tech Mono", monospace;
+      font-size: 11px;
+      color: var(--muted);
       margin-bottom: 10px;
     }
 
@@ -314,12 +386,36 @@
         <div class="stat"><strong id="cnt-total">0</strong>SINAIS</div>
         <div class="stat"><strong id="cnt-long">0</strong>LONG</div>
         <div class="stat"><strong id="cnt-short">0</strong>SHORT</div>
+        <button class="btn btn-config" onclick="saveSymbolSelection()">SALVAR MOEDAS</button>
         <button class="btn btn-start" id="btn-start" onclick="doStart()">INICIAR</button>
         <button class="btn btn-stop" id="btn-stop" onclick="doStop()" style="display:none">PARAR</button>
       </div>
     </header>
 
     <main>
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Moedas Monitoradas</div>
+          <div class="panel-sub" id="symbol-config-sub">Selecione os pares para acompanhar</div>
+        </div>
+        <div class="symbol-config">
+          <div class="symbol-actions">
+            <button class="btn btn-config" onclick="selectAllSymbols()">MARCAR TODAS</button>
+            <button class="btn btn-config" onclick="clearSymbolSelection()">LIMPAR</button>
+            <div class="direction-group">
+              <span class="symbol-help">Direcao</span>
+              <select class="direction-select" id="trade-direction" onchange="setTradeDirection(this.value)">
+                <option value="LONG">LONG</option>
+                <option value="SHORT">SHORT</option>
+                <option value="BOTH">LONG + SHORT</option>
+              </select>
+            </div>
+            <span class="symbol-help" id="selected-count">0 selecionadas</span>
+          </div>
+          <div class="symbol-grid" id="symbol-grid"></div>
+        </div>
+      </section>
+
       <section class="panel">
         <div class="panel-head">
           <div class="panel-title">Top 5 Swing Agora</div>
@@ -358,12 +454,16 @@
     const state = {
       connected: false,
       running: false,
+      symbols: [...SYMBOLS],
+      selectedSymbols: [...SYMBOLS],
       signals: {},
       prices: {},
       prevPrices: {},
       stats: { totalSignals: 0, longSignals: 0, shortSignals: 0 },
       topOpportunities: [],
       timeframe: "4h",
+      tradeDirection: "LONG",
+      usdBrl: 5.0,
     };
 
     let ws = null;
@@ -381,6 +481,18 @@
       return "$" + value.toFixed(6);
     }
 
+    function formatPriceBrl(price) {
+      if (!price) return "---";
+      const brl = Number(price) * Number(state.usdBrl || 0);
+      if (!Number.isFinite(brl) || brl <= 0) return "---";
+      return brl.toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        minimumFractionDigits: brl >= 1000 ? 2 : brl >= 1 ? 4 : 6,
+        maximumFractionDigits: brl >= 1000 ? 2 : brl >= 1 ? 4 : 6,
+      });
+    }
+
     function relTime(iso) {
       if (!iso) return "";
       const diffMin = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -393,6 +505,23 @@
 
     function setStatus(message) {
       document.getElementById("lbl-status").textContent = message;
+    }
+
+    function setTradeDirection(value) {
+      state.tradeDirection = String(value || "LONG").toUpperCase();
+      const select = document.getElementById("trade-direction");
+      if (select) select.value = state.tradeDirection;
+    }
+
+    async function refreshUsdBrl() {
+      try {
+        const response = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL");
+        const data = await response.json();
+        const rate = Number(data?.USDBRL?.bid);
+        if (Number.isFinite(rate) && rate > 0) {
+          state.usdBrl = rate;
+        }
+      } catch (_) {}
     }
 
     function setDot(id, active) {
@@ -414,24 +543,55 @@
       document.getElementById("cnt-short").textContent = state.stats.shortSignals || 0;
     }
 
+    function renderSymbolSelector() {
+      const host = document.getElementById("symbol-grid");
+      const selected = new Set(state.selectedSymbols);
+      host.innerHTML = SYMBOLS.map((sym) => `
+        <label class="symbol-option">
+          <input type="checkbox" value="${sym}" ${selected.has(sym) ? "checked" : ""} onchange="toggleSymbol('${sym}', this.checked)" />
+          <span>${ticker(sym)}</span>
+        </label>
+      `).join("");
+      document.getElementById("selected-count").textContent = `${state.selectedSymbols.length} selecionadas`;
+    }
+
+    function toggleSymbol(sym, checked) {
+      const set = new Set(state.selectedSymbols);
+      if (checked) set.add(sym);
+      else set.delete(sym);
+      state.selectedSymbols = SYMBOLS.filter((item) => set.has(item));
+      document.getElementById("selected-count").textContent = `${state.selectedSymbols.length} selecionadas`;
+    }
+
+    function selectAllSymbols() {
+      state.selectedSymbols = [...SYMBOLS];
+      renderSymbolSelector();
+    }
+
+    function clearSymbolSelection() {
+      state.selectedSymbols = [];
+      renderSymbolSelector();
+    }
+
     function buildMosaic() {
       const host = document.getElementById("mosaic");
       host.innerHTML = "";
-      for (const sym of SYMBOLS) {
+      for (const sym of state.symbols) {
         const card = document.createElement("div");
         card.className = "card";
         card.id = `card-${sym}`;
         card.innerHTML = cardHTML(sym, null, null, false);
         host.appendChild(card);
       }
-      document.getElementById("lbl-count").textContent = SYMBOLS.length;
+      document.getElementById("lbl-count").textContent = state.symbols.length;
       renderTopOpportunities();
     }
 
     function topOpportunityHTML(signal, index) {
       if (!signal) {
-        return '<div class="top-item empty">Nenhum setup LONG confirmado no momento.</div>';
+        return '<div class="top-item empty">Nenhum setup confirmado no momento.</div>';
       }
+      const isShort = signal.signal === "SHORT";
       const targetPct = Number(signal.targetPct || 0).toFixed(1);
       const rr = signal.riskReward != null ? `${Number(signal.riskReward).toFixed(2)}x` : "--";
       return `
@@ -445,10 +605,10 @@
             <div class="score">${signal.score || 0}/${signal.maxScore || 10}</div>
           </div>
           <div class="levels">
-            <div><span class="label">ENTRADA</span><span class="value">${formatPrice(signal.symbol, signal.price)}</span></div>
-            <div><span class="label">VENDER +${targetPct}%</span><span class="value target">${formatPrice(signal.symbol, signal.takeProfit)}</span></div>
-            <div><span class="label">STOP</span><span class="value stop">${formatPrice(signal.symbol, signal.stopLoss)}</span></div>
-            <div><span class="label">SETUP</span><span class="value">${signal.confidence || "--"}</span></div>
+            <div><span class="label">ENTRADA</span><span class="value">${formatPrice(signal.symbol, signal.price)}<br>${formatPriceBrl(signal.price)}</span></div>
+            <div><span class="label">${isShort ? `RECOMPRA -${targetPct}%` : `VENDER +${targetPct}%`}</span><span class="value target">${formatPrice(signal.symbol, signal.takeProfit)}<br>${formatPriceBrl(signal.takeProfit)}</span></div>
+            <div><span class="label">STOP</span><span class="value stop">${formatPrice(signal.symbol, signal.stopLoss)}<br>${formatPriceBrl(signal.stopLoss)}</span></div>
+            <div><span class="label">SETUP</span><span class="value">${signal.signal || "--"} · ${signal.confidence || "--"}</span></div>
           </div>
           <div class="meta" style="margin-top:10px;">
             <div><span class="label">R/R</span><span class="value">${rr}</span></div>
@@ -468,15 +628,22 @@
         return;
       }
       host.innerHTML = items.map((signal, index) => topOpportunityHTML(signal, index)).join("");
-      label.textContent = `${items.length} setups LONG ativos | melhor: ${items[0].symbol}`;
+      label.textContent = `${items.length} setups ativos | melhor: ${items[0].symbol} (${items[0].signal})`;
     }
 
     function cardHTML(sym, signal, price, isBest) {
-      const badgeClass = signal?.signal === "LONG" ? "badge long" : "badge none";
-      const badgeLabel = signal?.signal === "LONG" ? "LONG" : "NEUTRO";
+      const badgeClass =
+        signal?.signal === "LONG" ? "badge long" :
+        signal?.signal === "SHORT" ? "badge short" :
+        "badge none";
+      const badgeLabel =
+        signal?.signal === "LONG" ? "LONG" :
+        signal?.signal === "SHORT" ? "SHORT" :
+        "NEUTRO";
       const score = signal?.score != null ? `${signal.score}/${signal.maxScore || 10}` : "--";
       const targetPct = Number(signal?.targetPct || 0).toFixed(1);
       const livePrice = price || signal?.price || null;
+      const isShort = signal?.signal === "SHORT";
 
       return `
         <div class="card-head">
@@ -487,11 +654,12 @@
           <div class="${badgeClass}">${isBest ? "TOP" : badgeLabel}</div>
         </div>
         <div class="price" id="price-${sym}">${formatPrice(sym, livePrice)}</div>
+        <div class="price-brl" id="price-brl-${sym}">${formatPriceBrl(livePrice)}</div>
         <div class="info-grid">
           <div><span class="label">SCORE</span><span class="value">${score}</span></div>
           <div><span class="label">CONF</span><span class="value">${signal?.confidence || "--"}</span></div>
           <div><span class="label">STOP</span><span class="value stop">${formatPrice(sym, signal?.stopLoss)}</span></div>
-          <div><span class="label">ALVO +${targetPct}%</span><span class="value target">${formatPrice(sym, signal?.takeProfit)}</span></div>
+          <div><span class="label">${isShort ? `ALVO -${targetPct}%` : `ALVO +${targetPct}%`}</span><span class="value target">${formatPrice(sym, signal?.takeProfit)}</span></div>
         </div>
         <div class="meta">
           <div><span class="label">R/R</span><span class="value">${signal?.riskReward != null ? `${Number(signal.riskReward).toFixed(2)}x` : "--"}</span></div>
@@ -512,21 +680,22 @@
     function highlightBest() {
       let nextBest = null;
       let nextScore = -1;
-      for (const sym of SYMBOLS) {
+      for (const sym of state.symbols) {
         const sig = state.signals[sym];
-        if (!sig || sig.signal !== "LONG") continue;
+        if (!sig || sig.signal === "NONE") continue;
         if ((sig.score || 0) > nextScore) {
           nextScore = sig.score || 0;
           nextBest = sym;
         }
       }
       bestSymbol = nextBest;
-      for (const sym of SYMBOLS) {
+      for (const sym of state.symbols) {
         updateCard(sym, state.signals[sym] || null, state.prices[sym] || null);
       }
       if (nextBest) {
         const best = state.signals[nextBest];
-        setStatus(`Melhor swing: ${nextBest} | vender em ${formatPrice(nextBest, best.takeProfit)}`);
+        const action = best.signal === "SHORT" ? "recomprar" : "vender";
+        setStatus(`Melhor swing: ${nextBest} ${best.signal} | ${action} em ${formatPrice(nextBest, best.takeProfit)}`);
       }
     }
 
@@ -577,6 +746,13 @@
       if (type === "config" && data.timeframe) {
         state.timeframe = data.timeframe;
         document.getElementById("lbl-tf").textContent = String(data.timeframe).toUpperCase();
+        setTradeDirection(data.tradeDirection || state.tradeDirection);
+        if (Array.isArray(data.scanSymbols) && data.scanSymbols.length) {
+          state.symbols = [...data.scanSymbols];
+          state.selectedSymbols = [...data.scanSymbols];
+          renderSymbolSelector();
+          buildMosaic();
+        }
       }
 
       if (type === "mosaic_state") {
@@ -584,10 +760,14 @@
         updateRunUI();
         updateStats(data.stats);
         state.topOpportunities = Array.isArray(data.topOpportunities) ? data.topOpportunities : [];
-        for (const sym of SYMBOLS) {
+        if (Array.isArray(data.symbols) && data.symbols.length) {
+          state.symbols = [...data.symbols];
+        }
+        for (const sym of state.symbols) {
           if (data.signals?.[sym]) state.signals[sym] = data.signals[sym];
           if (data.prices?.[sym]) state.prices[sym] = data.prices[sym];
         }
+        buildMosaic();
         renderTopOpportunities();
         highlightBest();
       }
@@ -595,7 +775,7 @@
       if (type === "signal_update" && data.symbol) {
         state.signals[data.symbol] = data;
         state.topOpportunities = Object.values(state.signals)
-          .filter((sig) => sig && sig.signal === "LONG")
+          .filter((sig) => sig && sig.signal !== "NONE")
           .sort((a, b) => {
             if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
             return (b.riskReward || 0) - (a.riskReward || 0);
@@ -642,12 +822,64 @@
       }
     }
 
+    async function loadConfig() {
+      try {
+        const response = await fetch("/api/config");
+        const data = await response.json();
+        if (Array.isArray(data.scanSymbols) && data.scanSymbols.length) {
+          state.symbols = [...data.scanSymbols];
+          state.selectedSymbols = [...data.scanSymbols];
+        }
+        if (data.timeframe) {
+          state.timeframe = data.timeframe;
+          document.getElementById("lbl-tf").textContent = String(data.timeframe).toUpperCase();
+        }
+        setTradeDirection(data.tradeDirection || state.tradeDirection);
+      } catch (_) {}
+      renderSymbolSelector();
+      buildMosaic();
+    }
+
+    async function saveSymbolSelection() {
+      if (!state.selectedSymbols.length) {
+        alert("Selecione pelo menos uma moeda.");
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scanSymbols: state.selectedSymbols,
+            tradeDirection: state.tradeDirection,
+          }),
+        });
+        const data = await response.json();
+        if (data.error) {
+          alert(data.error);
+          return;
+        }
+        state.symbols = [...state.selectedSymbols];
+        buildMosaic();
+        setStatus(`Config atualizada: ${state.tradeDirection} em ${state.selectedSymbols.join(", ")}`);
+        document.getElementById("symbol-config-sub").textContent = `${state.selectedSymbols.length} pares salvos | direcao ${state.tradeDirection}`;
+      } catch (error) {
+        alert("Erro: " + error.message);
+      }
+    }
+
     setInterval(() => {
       renderTopOpportunities();
       highlightBest();
     }, 30000);
 
-    buildMosaic();
+    renderSymbolSelector();
+    refreshUsdBrl().then(() => {
+      renderTopOpportunities();
+      highlightBest();
+    });
+    loadConfig();
     connect();
   </script>
 </body>
