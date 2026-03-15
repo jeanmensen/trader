@@ -779,12 +779,14 @@
     }
 
     function getProjectionPoints(candles, signal) {
-      if (!candles?.length || !signal?.indicators) return [];
+      if (!candles?.length) return [];
       const closes = candles.map((c) => Number(c.close));
       const lastClose = closes[closes.length - 1];
-      const atr = Number(signal.indicators.atr || 0);
-      const trend = signal.indicators.trend || "LATERAL";
-      const scenario = signal.indicators.trendScenario || "CONSOLIDACAO";
+      const fallbackIndicators = deriveFallbackIndicators(candles);
+      const source = signal?.indicators || fallbackIndicators;
+      const atr = Number(source.atr || fallbackIndicators.atr || 0);
+      const trend = source.trend || fallbackIndicators.trend || "LATERAL";
+      const scenario = source.trendScenario || fallbackIndicators.trendScenario || "CONSOLIDACAO";
       const points = [];
       let drift = 0;
       if (trend === "ALTA") drift = atr * 0.45;
@@ -801,6 +803,75 @@
         });
       }
       return points;
+    }
+
+    function deriveFallbackIndicators(candles) {
+      if (!candles?.length) {
+        return {
+          trend: "LATERAL",
+          trendStrength: "BAIXA",
+          trendScenario: "CONSOLIDACAO",
+          projectedMovePct: 0,
+          atr: 0,
+          rsi: 0,
+          volRatio: "--",
+          htfBias: "NEUTRAL",
+          compressedBands: false,
+          bbExpanding: false,
+        };
+      }
+
+      const recent = candles.slice(-30);
+      const closes = candles.map((c) => Number(c.close));
+      const highs = candles.map((c) => Number(c.high));
+      const lows = candles.map((c) => Number(c.low));
+      const volumes = candles.map((c) => Number(c.volume || 0));
+      const price = closes[closes.length - 1];
+      const ema20 = calculateEMA(closes, 20);
+      const ema50 = calculateEMA(closes, 50);
+      const ema20Now = ema20[ema20.length - 1] || price;
+      const ema50Now = ema50[ema50.length - 1] || price;
+      const ema20Prev = ema20[ema20.length - 2] || ema20Now;
+      const ema50Prev = ema50[ema50.length - 2] || ema50Now;
+      const slope20 = ema20Now - ema20Prev;
+      const slope50 = ema50Now - ema50Prev;
+      const directionScore = (price > ema20Now ? 1 : -1) + (ema20Now > ema50Now ? 1 : -1);
+      const trend = directionScore >= 2 ? "ALTA" : directionScore <= -2 ? "BAIXA" : "LATERAL";
+      const strength =
+        trend === "LATERAL"
+          ? "BAIXA"
+          : Math.abs(slope20 / price) > 0.003 && Math.abs(slope50 / price) > 0.0015
+            ? "FORTE"
+            : "MEDIA";
+      const atr = recent.reduce((sum, candle) => sum + (Number(candle.high) - Number(candle.low)), 0) / recent.length;
+      const projectedMovePct = price > 0 ? +(((atr * 1.5) / price) * 100).toFixed(2) : 0;
+      const avgVolume = recent.reduce((sum, candle) => sum + Number(candle.volume || 0), 0) / recent.length;
+      const volRatio = avgVolume > 0 ? (volumes[volumes.length - 1] / avgVolume).toFixed(2) : "--";
+      const mid = recent.reduce((sum, candle) => sum + Number(candle.close), 0) / recent.length;
+      const variance = recent.reduce((sum, candle) => sum + (Number(candle.close) - mid) ** 2, 0) / recent.length;
+      const std = Math.sqrt(variance);
+      const bbExpanding = std / mid > 0.03;
+      const scenario =
+        trend === "ALTA"
+          ? price > ema20Now ? "CONTINUACAO_DE_ALTA" : "PULLBACK_DE_ALTA"
+          : trend === "BAIXA"
+            ? price < ema20Now ? "CONTINUACAO_DE_BAIXA" : "PULLBACK_DE_BAIXA"
+            : bbExpanding
+              ? "ROMPIMENTO_PENDENTE"
+              : "CONSOLIDACAO";
+
+      return {
+        trend,
+        trendStrength: strength,
+        trendScenario: scenario,
+        projectedMovePct,
+        atr,
+        rsi: 0,
+        volRatio,
+        htfBias: trend === "ALTA" ? "BULL" : trend === "BAIXA" ? "BEAR" : "NEUTRAL",
+        compressedBands: !bbExpanding,
+        bbExpanding,
+      };
     }
 
     function buildPriceChart(candles, signal) {
@@ -859,7 +930,8 @@
           ].join(" ")
         : "";
 
-      const trendColor = mapTrendColor(signal?.indicators?.trend);
+      const fallbackIndicators = deriveFallbackIndicators(recent);
+      const trendColor = mapTrendColor(signal?.indicators?.trend || fallbackIndicators.trend);
 
       return `
         <div class="chart-wrap">
@@ -892,7 +964,7 @@
     function renderDetailPanel() {
       const symbol = ensureDetailSymbol();
       const signal = symbol ? state.signals[symbol] || null : null;
-      const indicators = signal?.indicators || {};
+      const indicators = signal?.indicators || deriveFallbackIndicators(state.detailMarket?.candles || []);
       const trend = indicators.trend || "SEM LEITURA";
       const strength = indicators.trendStrength || "--";
       const scenario = mapScenarioLabel(indicators.trendScenario);

@@ -115,7 +115,6 @@ class ConservativeStrategy {
       atr,
       volRatio,
     } = ind;
-    const trendContext = this.buildTrendContext(ind);
 
     const htfBull = price > emaFilterV;
     const htfBear = price < emaFilterV;
@@ -202,6 +201,7 @@ class ConservativeStrategy {
       atr,
       volRatio,
     } = ind;
+    const trendContext = this.buildTrendContext(ind);
 
     const lastCandle = candles[candles.length - 1];
     const prevCandle = candles[candles.length - 2];
