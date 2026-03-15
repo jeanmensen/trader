@@ -55,7 +55,11 @@ let botConfig = {
   leverage: parseInt(process.env.DEFAULT_LEVERAGE || "2"),
   riskPerTrade: parseFloat(process.env.RISK_PER_TRADE || "0.5"),
   stopLossPct: parseFloat(process.env.STOP_LOSS_PCT || "1.2"),
-  takeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || "3.0"),
+  takeProfitMode: String(process.env.TAKE_PROFIT_MODE || "ATR").toUpperCase(),
+  takeProfitPct: process.env.TAKE_PROFIT_PCT
+    ? parseFloat(process.env.TAKE_PROFIT_PCT)
+    : null,
+  takeProfitMult: parseFloat(process.env.TAKE_PROFIT_MULT || "3.0"),
   maxOpenTrades: parseInt(process.env.MAX_OPEN_TRADES || "1"),
   testnet: process.env.USE_TESTNET !== "false",
   bypassDailyLimit: false,
@@ -165,10 +169,18 @@ app.get("/api/config", (req, res) => res.json(botConfig));
 
 // Update config
 app.put("/api/config", async (req, res) => {
-  const { leverage, riskPerTrade, stopLossPct, takeProfitPct, maxOpenTrades } =
+  const {
+    leverage,
+    riskPerTrade,
+    stopLossPct,
+    takeProfitPct,
+    takeProfitMult,
+    maxOpenTrades,
+  } =
     req.body;
   let scanSymbols = req.body?.scanSymbols;
   let tradeDirection = req.body?.tradeDirection;
+  let takeProfitMode = req.body?.takeProfitMode;
   if (leverage !== undefined && (leverage < 1 || leverage > 125))
     return res.status(400).json({ error: "leverage deve ser entre 1 e 125" });
   if (riskPerTrade !== undefined && (riskPerTrade <= 0 || riskPerTrade > 10))
@@ -179,10 +191,18 @@ app.put("/api/config", async (req, res) => {
     return res
       .status(400)
       .json({ error: "stopLossPct deve ser entre 0.1 e 20" });
-  if (takeProfitPct !== undefined && (takeProfitPct <= 0 || takeProfitPct > 50))
+  if (
+    takeProfitPct !== undefined &&
+    takeProfitPct !== null &&
+    (takeProfitPct <= 0 || takeProfitPct > 50)
+  )
     return res
       .status(400)
       .json({ error: "takeProfitPct deve ser entre 0.1 e 50" });
+  if (takeProfitMult !== undefined && (takeProfitMult <= 0 || takeProfitMult > 20))
+    return res
+      .status(400)
+      .json({ error: "takeProfitMult deve ser entre 0.1 e 20" });
   if (maxOpenTrades !== undefined && (maxOpenTrades < 1 || maxOpenTrades > 10))
     return res
       .status(400)
@@ -201,10 +221,31 @@ app.put("/api/config", async (req, res) => {
     }
   }
 
+  if (takeProfitMode !== undefined) {
+    takeProfitMode = String(takeProfitMode).toUpperCase().trim();
+    if (!["FIXED_PCT", "ATR"].includes(takeProfitMode)) {
+      return res.status(400).json({ error: "takeProfitMode deve ser FIXED_PCT ou ATR" });
+    }
+  }
+
+  if ((takeProfitMode || botConfig.takeProfitMode) === "FIXED_PCT") {
+    const nextTakeProfitPct = takeProfitPct !== undefined ? takeProfitPct : botConfig.takeProfitPct;
+    if (!Number.isFinite(nextTakeProfitPct) || nextTakeProfitPct <= 0) {
+      return res.status(400).json({ error: "takeProfitPct deve ser informado no modo FIXED_PCT" });
+    }
+  }
+
   botConfig = {
     ...botConfig,
     ...req.body,
     tradeDirection: tradeDirection !== undefined ? tradeDirection : botConfig.tradeDirection,
+    takeProfitMode: takeProfitMode !== undefined ? takeProfitMode : botConfig.takeProfitMode,
+    takeProfitPct:
+      (takeProfitMode !== undefined ? takeProfitMode : botConfig.takeProfitMode) === "ATR"
+        ? null
+        : takeProfitPct !== undefined
+          ? takeProfitPct
+          : botConfig.takeProfitPct,
     scanSymbols:
       scanSymbols !== undefined
         ? scanSymbols
@@ -280,13 +321,13 @@ app.get("/api/market/:symbol", async (req, res) => {
     if (!binance) return res.status(400).json({ error: "Não conectado" });
     const { symbol } = req.params;
     const interval = req.query.interval || "15m";
+    const limit = Math.min(parseInt(req.query.limit || "120", 10), 300);
     const canUseBotCache =
       !!bot &&
-      bot.getCandles().length > 0 &&
-      symbol === botConfig.symbol &&
+      bot.getCandles(symbol).length > 0 &&
       interval === botConfig.timeframe;
     if (canUseBotCache) {
-      const candles = bot.getCandles();
+      const candles = bot.getCandles(symbol).slice(-limit);
       const lastClose = candles[candles.length - 1]?.close || 0;
       return res.json({
         ticker: { lastPrice: lastClose, symbol },
@@ -296,7 +337,7 @@ app.get("/api/market/:symbol", async (req, res) => {
     }
     const [ticker, candles] = await Promise.all([
       binance.getTicker(symbol),
-      binance.getKlines(symbol, interval, 100),
+      binance.getKlines(symbol, interval, limit),
     ]);
     res.json({ ticker, candles, markPrice: { markPrice: ticker.lastPrice } });
   } catch (e) {

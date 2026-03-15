@@ -289,7 +289,11 @@ class SignalAdvisor {
 
   getState() { return this.getSafeState(); }
 
-  getCandles() { return []; }
+  getCandles(symbol = null) {
+    if (symbol) return this.state.candlesMap[symbol] || [];
+    const firstSymbol = this.symbols[0];
+    return firstSymbol ? this.state.candlesMap[firstSymbol] || [] : [];
+  }
 
   async updateConfig(cfg) {
     const prevTimeframe = this.config.timeframe;

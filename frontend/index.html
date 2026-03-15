@@ -156,6 +156,102 @@
       padding: 14px;
     }
 
+    .detail-panel {
+      padding: 14px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .trend-card,
+    .chart-card {
+      border: 1px solid rgba(29, 60, 97, 0.85);
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .trend-kicker {
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .trend-main {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .trend-title {
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .trend-strength {
+      font-family: "Share Tech Mono", monospace;
+      font-size: 11px;
+      color: var(--yellow);
+    }
+
+    .trend-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .trend-note {
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+
+    .chart-wrap {
+      width: 100%;
+      min-height: 260px;
+    }
+
+    .chart-svg {
+      width: 100%;
+      height: 260px;
+      display: block;
+    }
+
+    .chart-legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-line {
+      width: 18px;
+      height: 2px;
+      border-radius: 999px;
+    }
+
     .symbol-config {
       padding: 14px;
       display: grid;
@@ -174,6 +270,29 @@
       gap: 8px;
       flex-wrap: wrap;
       align-items: center;
+    }
+
+    .config-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .config-field {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .config-field.hidden {
+      display: none;
+    }
+
+    .config-preview {
+      color: var(--muted);
+      font-family: "Share Tech Mono", monospace;
+      font-size: 10px;
     }
 
     .direction-select {
@@ -221,6 +340,7 @@
       background: var(--panel);
       border-radius: 8px;
       padding: 12px;
+      cursor: pointer;
     }
 
     .top-item.empty {
@@ -370,6 +490,7 @@
       header { align-items: flex-start; }
       .header-side { justify-content: flex-start; }
       .top-list, .mosaic { grid-template-columns: 1fr; }
+      .detail-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -410,9 +531,38 @@
                 <option value="BOTH">LONG + SHORT</option>
               </select>
             </div>
+            <div class="config-group">
+              <span class="symbol-help">Alvo</span>
+              <select class="direction-select" id="take-profit-mode" onchange="setTakeProfitMode(this.value)">
+                <option value="ATR">ATR</option>
+                <option value="FIXED_PCT">% FIXO</option>
+              </select>
+              <div class="config-field" id="take-profit-mult-wrap">
+                <span class="symbol-help">Multiplicador ATR</span>
+                <input class="direction-select" id="take-profit-mult" type="number" min="0.1" max="20" step="0.1" value="3.0" oninput="state.takeProfitMult=Number(this.value||0); updateTakeProfitPreview()" />
+              </div>
+              <div class="config-field hidden" id="take-profit-pct-wrap">
+                <span class="symbol-help">Alvo fixo (%)</span>
+                <input class="direction-select" id="take-profit-pct" type="number" min="0.1" max="50" step="0.1" value="3.0" oninput="state.takeProfitPct=Number(this.value||0); updateTakeProfitPreview()" />
+              </div>
+            </div>
+            <span class="config-preview" id="take-profit-preview">Carregando estimativa do alvo...</span>
             <span class="symbol-help" id="selected-count">0 selecionadas</span>
           </div>
           <div class="symbol-grid" id="symbol-grid"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Radar de Tendencia</div>
+          <div class="panel-sub" id="detail-sub">Selecione um ativo para ver o contexto atual</div>
+        </div>
+        <div class="detail-panel">
+          <div class="detail-grid">
+            <div class="trend-card" id="trend-card"></div>
+            <div class="chart-card" id="chart-card"></div>
+          </div>
         </div>
       </section>
 
@@ -427,7 +577,7 @@
       <section class="panel">
         <div class="panel-head">
           <div class="panel-title">Mosaico de Ativos</div>
-          <div class="panel-sub">Somente setups de swing com alvo fixo</div>
+          <div class="panel-sub">Setups de swing com alvo fixo ou ATR</div>
         </div>
         <div class="mosaic" id="mosaic"></div>
       </section>
@@ -463,6 +613,11 @@
       topOpportunities: [],
       timeframe: "4h",
       tradeDirection: "LONG",
+      takeProfitMode: "ATR",
+      takeProfitPct: 3.0,
+      takeProfitMult: 3.0,
+      detailSymbol: null,
+      detailMarket: null,
       usdBrl: 5.0,
     };
 
@@ -493,6 +648,37 @@
       });
     }
 
+    function calculateEMA(values, period) {
+      if (!Array.isArray(values) || values.length < period) return [];
+      const k = 2 / (period + 1);
+      const seed = values.slice(0, period).reduce((sum, value) => sum + value, 0) / period;
+      const result = new Array(period - 1).fill(null);
+      let ema = seed;
+      result.push(ema);
+      for (let i = period; i < values.length; i++) {
+        ema = values[i] * k + ema * (1 - k);
+        result.push(ema);
+      }
+      return result;
+    }
+
+    function mapScenarioLabel(value) {
+      return {
+        CONTINUACAO_DE_ALTA: "continuidade de alta",
+        PULLBACK_DE_ALTA: "pullback em alta",
+        CONTINUACAO_DE_BAIXA: "continuidade de baixa",
+        PULLBACK_DE_BAIXA: "pullback em baixa",
+        CONSOLIDACAO: "consolidacao",
+        ROMPIMENTO_PENDENTE: "rompimento pendente",
+      }[value] || "contexto indefinido";
+    }
+
+    function mapTrendColor(trend) {
+      if (trend === "ALTA") return "#00e58b";
+      if (trend === "BAIXA") return "#ff5c72";
+      return "#ffcf4a";
+    }
+
     function relTime(iso) {
       if (!iso) return "";
       const diffMin = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -511,6 +697,238 @@
       state.tradeDirection = String(value || "LONG").toUpperCase();
       const select = document.getElementById("trade-direction");
       if (select) select.value = state.tradeDirection;
+    }
+
+    function setTakeProfitMode(value) {
+      state.takeProfitMode = String(value || "ATR").toUpperCase();
+      const select = document.getElementById("take-profit-mode");
+      const pctInput = document.getElementById("take-profit-pct");
+      const multInput = document.getElementById("take-profit-mult");
+      const pctWrap = document.getElementById("take-profit-pct-wrap");
+      const multWrap = document.getElementById("take-profit-mult-wrap");
+      if (select) select.value = state.takeProfitMode;
+      if (pctInput) pctInput.disabled = state.takeProfitMode !== "FIXED_PCT";
+      if (multInput) multInput.disabled = state.takeProfitMode !== "ATR";
+      if (pctWrap) pctWrap.classList.toggle("hidden", state.takeProfitMode !== "FIXED_PCT");
+      if (multWrap) multWrap.classList.toggle("hidden", state.takeProfitMode !== "ATR");
+      updateTakeProfitPreview();
+    }
+
+    function getTakeProfitSummary() {
+      return state.takeProfitMode === "FIXED_PCT"
+        ? `TP ${Number(state.takeProfitPct || 0).toFixed(1)}%`
+        : `TP ATR x${Number(state.takeProfitMult || 0).toFixed(1)}`;
+    }
+
+    function estimateAtrTargetPct() {
+      const estimates = Object.values(state.signals)
+        .map((signal) => {
+          const price = Number(signal?.price || 0);
+          const atr = Number(signal?.indicators?.atr || 0);
+          if (!Number.isFinite(price) || !Number.isFinite(atr) || price <= 0 || atr <= 0) return null;
+          return (atr / price) * 100 * Number(state.takeProfitMult || 0);
+        })
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .sort((a, b) => a - b);
+
+      if (!estimates.length) return null;
+      return estimates[Math.floor(estimates.length / 2)];
+    }
+
+    function updateTakeProfitPreview() {
+      const preview = document.getElementById("take-profit-preview");
+      if (!preview) return;
+      if (state.takeProfitMode === "FIXED_PCT") {
+        preview.textContent = `Alvo atual: ${Number(state.takeProfitPct || 0).toFixed(1)}%`;
+        return;
+      }
+      const estimatedPct = estimateAtrTargetPct();
+      preview.textContent = estimatedPct == null
+        ? `ATR x${Number(state.takeProfitMult || 0).toFixed(1)}: estimativa em % aparece quando chegarem dados`
+        : `ATR x${Number(state.takeProfitMult || 0).toFixed(1)}: alvo aproximado de ${estimatedPct.toFixed(1)}% no mercado atual`;
+    }
+
+    function ensureDetailSymbol() {
+      if (state.detailSymbol && state.symbols.includes(state.detailSymbol)) return state.detailSymbol;
+      state.detailSymbol = bestSymbol || state.symbols[0] || null;
+      return state.detailSymbol;
+    }
+
+    async function loadDetailMarket(symbol) {
+      if (!symbol) return;
+      try {
+        const response = await fetch(`/api/market/${symbol}?interval=${encodeURIComponent(state.timeframe)}&limit=120`);
+        const data = await response.json();
+        if (data.error) return;
+        state.detailMarket = {
+          symbol,
+          candles: Array.isArray(data.candles) ? data.candles : [],
+          ticker: data.ticker || null,
+        };
+        renderDetailPanel();
+      } catch (_) {}
+    }
+
+    function setDetailSymbol(symbol) {
+      if (!symbol) return;
+      state.detailSymbol = symbol;
+      document.getElementById("detail-sub").textContent = `${symbol} em ${String(state.timeframe).toUpperCase()} | leitura de regime e projecao de cenario`;
+      buildMosaic();
+      renderTopOpportunities();
+      loadDetailMarket(symbol);
+    }
+
+    function getProjectionPoints(candles, signal) {
+      if (!candles?.length || !signal?.indicators) return [];
+      const closes = candles.map((c) => Number(c.close));
+      const lastClose = closes[closes.length - 1];
+      const atr = Number(signal.indicators.atr || 0);
+      const trend = signal.indicators.trend || "LATERAL";
+      const scenario = signal.indicators.trendScenario || "CONSOLIDACAO";
+      const points = [];
+      let drift = 0;
+      if (trend === "ALTA") drift = atr * 0.45;
+      else if (trend === "BAIXA") drift = -atr * 0.45;
+      if (scenario.includes("PULLBACK")) drift *= 0.35;
+      if (trend === "LATERAL") drift = 0;
+      for (let i = 1; i <= 5; i++) {
+        const wave = trend === "LATERAL" ? Math.sin(i) * atr * 0.25 : 0;
+        const value = lastClose + drift * i + wave;
+        points.push({
+          value,
+          high: value + atr * 0.5,
+          low: value - atr * 0.5,
+        });
+      }
+      return points;
+    }
+
+    function buildPriceChart(candles, signal) {
+      if (!candles?.length) {
+        return '<div class="trend-note">Sem candles suficientes para montar o grafico.</div>';
+      }
+
+      const recent = candles.slice(-80);
+      const closes = recent.map((c) => Number(c.close));
+      const ema20 = calculateEMA(closes, 20);
+      const ema50 = calculateEMA(closes, 50);
+      const projection = getProjectionPoints(recent, signal);
+      const allValues = closes
+        .concat(ema20.filter((v) => Number.isFinite(v)))
+        .concat(ema50.filter((v) => Number.isFinite(v)))
+        .concat(projection.flatMap((p) => [p.high, p.low]));
+      const min = Math.min(...allValues);
+      const max = Math.max(...allValues);
+      const range = Math.max(max - min, max * 0.01);
+      const width = 860;
+      const height = 260;
+      const leftPad = 16;
+      const topPad = 14;
+      const plotWidth = 680;
+      const plotHeight = 210;
+      const projectionWidth = 120;
+      const step = plotWidth / Math.max(recent.length - 1, 1);
+
+      const yOf = (value) => topPad + ((max - value) / range) * plotHeight;
+      const xOf = (index) => leftPad + index * step;
+      const projectXOf = (index) => leftPad + plotWidth + (projectionWidth / 5) * index;
+
+      const linePath = closes
+        .map((value, index) => `${index === 0 ? "M" : "L"} ${xOf(index).toFixed(2)} ${yOf(value).toFixed(2)}`)
+        .join(" ");
+      const ema20Path = ema20
+        .map((value, index) => (Number.isFinite(value) ? `${index === 19 ? "M" : "L"} ${xOf(index).toFixed(2)} ${yOf(value).toFixed(2)}` : ""))
+        .filter(Boolean)
+        .join(" ");
+      const ema50Path = ema50
+        .map((value, index) => (Number.isFinite(value) ? `${index === 49 ? "M" : "L"} ${xOf(index).toFixed(2)} ${yOf(value).toFixed(2)}` : ""))
+        .filter(Boolean)
+        .join(" ");
+      const projectionPath = projection
+        .map((point, index) => `${index === 0 ? "M" : "L"} ${projectXOf(index + 1).toFixed(2)} ${yOf(point.value).toFixed(2)}`)
+        .join(" ");
+      const areaPath = projection.length
+        ? [
+            `M ${projectXOf(1).toFixed(2)} ${yOf(projection[0].high).toFixed(2)}`,
+            ...projection.map((point, index) => `L ${projectXOf(index + 1).toFixed(2)} ${yOf(point.high).toFixed(2)}`),
+            ...projection.slice().reverse().map((point, revIndex) => {
+              const index = projection.length - revIndex;
+              return `L ${projectXOf(index).toFixed(2)} ${yOf(point.low).toFixed(2)}`;
+            }),
+            "Z",
+          ].join(" ")
+        : "";
+
+      const trendColor = mapTrendColor(signal?.indicators?.trend);
+
+      return `
+        <div class="chart-wrap">
+          <svg class="chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="forecast-fill" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stop-color="${trendColor}" stop-opacity="0.20" />
+                <stop offset="100%" stop-color="${trendColor}" stop-opacity="0.03" />
+              </linearGradient>
+            </defs>
+            <rect x="0" y="0" width="${width}" height="${height}" rx="10" fill="rgba(7,17,31,0.55)" />
+            <line x1="${leftPad + plotWidth}" y1="${topPad}" x2="${leftPad + plotWidth}" y2="${topPad + plotHeight}" stroke="rgba(111,143,177,0.35)" stroke-dasharray="4 4" />
+            <path d="${areaPath}" fill="url(#forecast-fill)" />
+            <path d="${linePath}" fill="none" stroke="#d6e8ff" stroke-width="2" />
+            <path d="${ema20Path}" fill="none" stroke="#37c8ff" stroke-width="2" />
+            <path d="${ema50Path}" fill="none" stroke="#ffcf4a" stroke-width="2" />
+            <path d="${projectionPath}" fill="none" stroke="${trendColor}" stroke-width="2" stroke-dasharray="5 5" />
+            <text x="${leftPad + plotWidth + 10}" y="${topPad + 12}" fill="#6f8fb1" font-size="10" font-family="'Share Tech Mono', monospace">cenario</text>
+          </svg>
+        </div>
+        <div class="chart-legend">
+          <span class="legend-item"><span class="legend-line" style="background:#d6e8ff"></span>Preco</span>
+          <span class="legend-item"><span class="legend-line" style="background:#37c8ff"></span>EMA 20</span>
+          <span class="legend-item"><span class="legend-line" style="background:#ffcf4a"></span>EMA 50</span>
+          <span class="legend-item"><span class="legend-line" style="background:${trendColor}"></span>Projecao de cenario</span>
+        </div>
+      `;
+    }
+
+    function renderDetailPanel() {
+      const symbol = ensureDetailSymbol();
+      const signal = symbol ? state.signals[symbol] || null : null;
+      const indicators = signal?.indicators || {};
+      const trend = indicators.trend || "SEM LEITURA";
+      const strength = indicators.trendStrength || "--";
+      const scenario = mapScenarioLabel(indicators.trendScenario);
+      const projectedMove = Number(indicators.projectedMovePct || 0).toFixed(2);
+      const trendColor = mapTrendColor(trend);
+      const trendCard = document.getElementById("trend-card");
+      const chartCard = document.getElementById("chart-card");
+      if (!trendCard || !chartCard) return;
+
+      trendCard.innerHTML = symbol
+        ? `
+            <div class="trend-kicker">${symbol} · ${String(state.timeframe).toUpperCase()}</div>
+            <div class="trend-main">
+              <div>
+                <div class="trend-title" style="color:${trendColor}">${trend}</div>
+                <div class="pair">${signal?.signal && signal.signal !== "NONE" ? `Setup ${signal.signal}` : "Sem setup confirmado agora"}</div>
+              </div>
+              <div class="trend-strength">forca ${strength}</div>
+            </div>
+            <div class="trend-grid">
+              <div><span class="label">CENARIO</span><span class="value">${scenario}</span></div>
+              <div><span class="label">HTF</span><span class="value">${indicators.htfBias || "--"}</span></div>
+              <div><span class="label">RSI</span><span class="value">${Number(indicators.rsi || 0).toFixed(1)}</span></div>
+              <div><span class="label">VOL</span><span class="value">${indicators.volRatio || "--"}x</span></div>
+              <div><span class="label">PROJECAO</span><span class="value">${projectedMove}% / 5 candles</span></div>
+              <div><span class="label">BANDAS</span><span class="value">${indicators.compressedBands ? "compressas" : indicators.bbExpanding ? "expandindo" : "normais"}</span></div>
+            </div>
+            <div class="trend-note">
+              Leitura de regime para ajudar quando nao houver sinal. A projecao e um cenario visual baseado em ATR e estrutura, nao uma previsao exata de preco.
+            </div>
+          `
+        : '<div class="trend-note">Selecione um ativo para ver a leitura de tendencia.</div>';
+
+      chartCard.innerHTML = state.detailMarket?.symbol === symbol
+        ? buildPriceChart(state.detailMarket.candles, signal)
+        : '<div class="trend-note">Carregando grafico do ativo selecionado...</div>';
     }
 
     async function refreshUsdBrl() {
@@ -576,15 +994,19 @@
     function buildMosaic() {
       const host = document.getElementById("mosaic");
       host.innerHTML = "";
+      ensureDetailSymbol();
       for (const sym of state.symbols) {
         const card = document.createElement("div");
-        card.className = "card";
+        const isSelected = state.detailSymbol === sym;
+        card.className = "card" + (isSelected ? " best" : "");
         card.id = `card-${sym}`;
         card.innerHTML = cardHTML(sym, null, null, false);
+        card.onclick = () => setDetailSymbol(sym);
         host.appendChild(card);
       }
       document.getElementById("lbl-count").textContent = state.symbols.length;
       renderTopOpportunities();
+      renderDetailPanel();
     }
 
     function topOpportunityHTML(signal, index) {
@@ -595,7 +1017,7 @@
       const targetPct = Number(signal.targetPct || 0).toFixed(1);
       const rr = signal.riskReward != null ? `${Number(signal.riskReward).toFixed(2)}x` : "--";
       return `
-        <div class="top-item">
+        <div class="top-item" onclick="setDetailSymbol('${signal.symbol}')">
           <div class="top-item-head">
             <div>
               <div class="rank">#${index + 1} SWING</div>
@@ -673,7 +1095,8 @@
       const card = document.getElementById(`card-${sym}`);
       if (!card) return;
       const isBest = bestSymbol === sym;
-      card.className = "card" + (isBest ? " best" : "");
+      const isSelected = state.detailSymbol === sym;
+      card.className = "card" + (isBest || isSelected ? " best" : "");
       card.innerHTML = cardHTML(sym, signal, price, isBest);
     }
 
@@ -747,11 +1170,22 @@
         state.timeframe = data.timeframe;
         document.getElementById("lbl-tf").textContent = String(data.timeframe).toUpperCase();
         setTradeDirection(data.tradeDirection || state.tradeDirection);
+        state.takeProfitPct = Number(data.takeProfitPct || state.takeProfitPct);
+        state.takeProfitMult = Number(data.takeProfitMult || state.takeProfitMult);
+        setTakeProfitMode(data.takeProfitMode || (data.takeProfitPct ? "FIXED_PCT" : "ATR"));
+        document.getElementById("take-profit-pct").value = state.takeProfitPct;
+        document.getElementById("take-profit-mult").value = state.takeProfitMult;
+        updateTakeProfitPreview();
         if (Array.isArray(data.scanSymbols) && data.scanSymbols.length) {
           state.symbols = [...data.scanSymbols];
           state.selectedSymbols = [...data.scanSymbols];
           renderSymbolSelector();
           buildMosaic();
+        }
+        if (!state.detailSymbol || !state.symbols.includes(state.detailSymbol)) {
+          setDetailSymbol(state.symbols[0] || null);
+        } else {
+          loadDetailMarket(state.detailSymbol);
         }
       }
 
@@ -770,6 +1204,11 @@
         buildMosaic();
         renderTopOpportunities();
         highlightBest();
+        updateTakeProfitPreview();
+        if (!state.detailSymbol || !state.symbols.includes(state.detailSymbol)) {
+          state.detailSymbol = bestSymbol || state.symbols[0] || null;
+        }
+        renderDetailPanel();
       }
 
       if (type === "signal_update" && data.symbol) {
@@ -783,6 +1222,8 @@
           .slice(0, 5);
         renderTopOpportunities();
         highlightBest();
+        updateTakeProfitPreview();
+        if (data.symbol === state.detailSymbol) loadDetailMarket(state.detailSymbol);
       }
 
       if (type === "tick" && data.symbol && data.price) {
@@ -801,6 +1242,8 @@
         if (Array.isArray(data.topOpportunities)) state.topOpportunities = data.topOpportunities;
         renderTopOpportunities();
         highlightBest();
+        updateTakeProfitPreview();
+        renderDetailPanel();
       }
     }
 
@@ -835,9 +1278,16 @@
           document.getElementById("lbl-tf").textContent = String(data.timeframe).toUpperCase();
         }
         setTradeDirection(data.tradeDirection || state.tradeDirection);
+        state.takeProfitPct = Number(data.takeProfitPct || state.takeProfitPct);
+        state.takeProfitMult = Number(data.takeProfitMult || state.takeProfitMult);
+        setTakeProfitMode(data.takeProfitMode || (data.takeProfitPct ? "FIXED_PCT" : "ATR"));
+        document.getElementById("take-profit-pct").value = state.takeProfitPct;
+        document.getElementById("take-profit-mult").value = state.takeProfitMult;
+        updateTakeProfitPreview();
       } catch (_) {}
       renderSymbolSelector();
       buildMosaic();
+      if (!state.detailSymbol) setDetailSymbol(state.symbols[0] || null);
     }
 
     async function saveSymbolSelection() {
@@ -847,12 +1297,18 @@
       }
 
       try {
+        state.takeProfitMode = String(document.getElementById("take-profit-mode").value || "ATR").toUpperCase();
+        state.takeProfitPct = Number(document.getElementById("take-profit-pct").value || state.takeProfitPct);
+        state.takeProfitMult = Number(document.getElementById("take-profit-mult").value || state.takeProfitMult);
         const response = await fetch("/api/config", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             scanSymbols: state.selectedSymbols,
             tradeDirection: state.tradeDirection,
+            takeProfitMode: state.takeProfitMode,
+            takeProfitPct: state.takeProfitMode === "FIXED_PCT" ? state.takeProfitPct : null,
+            takeProfitMult: state.takeProfitMult,
           }),
         });
         const data = await response.json();
@@ -860,10 +1316,23 @@
           alert(data.error);
           return;
         }
+        state.takeProfitMode = data.config?.takeProfitMode || state.takeProfitMode;
+        state.takeProfitPct = Number(data.config?.takeProfitPct || state.takeProfitPct);
+        state.takeProfitMult = Number(data.config?.takeProfitMult || state.takeProfitMult);
+        setTakeProfitMode(state.takeProfitMode);
+        document.getElementById("take-profit-pct").value = state.takeProfitPct;
+        document.getElementById("take-profit-mult").value = state.takeProfitMult;
         state.symbols = [...state.selectedSymbols];
         buildMosaic();
-        setStatus(`Config atualizada: ${state.tradeDirection} em ${state.selectedSymbols.join(", ")}`);
-        document.getElementById("symbol-config-sub").textContent = `${state.selectedSymbols.length} pares salvos | direcao ${state.tradeDirection}`;
+        updateTakeProfitPreview();
+        setStatus(`Config atualizada: ${state.tradeDirection} | ${getTakeProfitSummary()}`);
+        document.getElementById("symbol-config-sub").textContent = `${state.selectedSymbols.length} pares salvos | direcao ${state.tradeDirection} | ${getTakeProfitSummary()}`;
+        if (!state.detailSymbol || !state.symbols.includes(state.detailSymbol)) {
+          setDetailSymbol(state.symbols[0] || null);
+        } else {
+          renderDetailPanel();
+          loadDetailMarket(state.detailSymbol);
+        }
       } catch (error) {
         alert("Erro: " + error.message);
       }
@@ -879,6 +1348,8 @@
       renderTopOpportunities();
       highlightBest();
     });
+    setTakeProfitMode(state.takeProfitMode);
+    updateTakeProfitPreview();
     loadConfig();
     connect();
   </script>

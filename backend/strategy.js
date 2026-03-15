@@ -14,7 +14,11 @@ class ConservativeStrategy {
     this.atrPeriod = config.atrPeriod || 14;
     this.atrMult = config.atrMult || 1.5;
     this.stopLossPct = config.stopLossPct || null;
-    this.takeProfitPct = config.takeProfitPct || 3;
+    this.takeProfitMode = String(
+      config.takeProfitMode || (config.takeProfitPct ? "FIXED_PCT" : "ATR"),
+    ).toUpperCase();
+    this.takeProfitPct = config.takeProfitPct || null;
+    this.takeProfitMult = config.takeProfitMult || 3.0;
     this.tradeDirection = String(config.tradeDirection || "LONG").toUpperCase();
   }
 
@@ -95,6 +99,84 @@ class ConservativeStrategy {
     return Number(value.toFixed(decimals));
   }
 
+  buildTrendContext(ind) {
+    const {
+      price,
+      emaFastV,
+      emaFastP,
+      emaSlowV,
+      emaSlowP,
+      emaLongV,
+      emaFilterV,
+      rsi,
+      bb,
+      bbWidth,
+      bbExpanding,
+      atr,
+      volRatio,
+    } = ind;
+    const trendContext = this.buildTrendContext(ind);
+
+    const htfBull = price > emaFilterV;
+    const htfBear = price < emaFilterV;
+    const bullTrend = emaFastV > emaSlowV && emaSlowV > emaLongV;
+    const bearTrend = emaFastV < emaSlowV && emaSlowV < emaLongV;
+    const emaFastSlope = (emaFastV - emaFastP) / emaFastP;
+    const emaSlowSlope = (emaSlowV - emaSlowP) / emaSlowP;
+    const compressedBands = bbWidth < 0.06;
+    const priceNearMiddleBand = Math.abs(price - bb.middle) / price < 0.015;
+
+    let trend = "LATERAL";
+    let strengthScore = 0;
+
+    if (htfBull && bullTrend) {
+      trend = "ALTA";
+      strengthScore += 2;
+    } else if (htfBear && bearTrend) {
+      trend = "BAIXA";
+      strengthScore += 2;
+    }
+
+    if (Math.abs(emaFastSlope) > 0.0025) strengthScore += 1;
+    if (Math.abs(emaSlowSlope) > 0.0015) strengthScore += 1;
+    if (bbExpanding) strengthScore += 1;
+    if (volRatio >= 1.05) strengthScore += 1;
+
+    if (trend === "LATERAL" || (compressedBands && priceNearMiddleBand)) {
+      trend = "LATERAL";
+    }
+
+    const strength =
+      trend === "LATERAL"
+        ? compressedBands ? "BAIXA" : "MEDIA"
+        : strengthScore >= 5
+          ? "FORTE"
+          : strengthScore >= 3
+            ? "MEDIA"
+            : "BAIXA";
+
+    let scenario = "CONSOLIDACAO";
+    if (trend === "ALTA") {
+      scenario = price > emaFastV && rsi >= 55 ? "CONTINUACAO_DE_ALTA" : "PULLBACK_DE_ALTA";
+    } else if (trend === "BAIXA") {
+      scenario = price < emaFastV && rsi <= 45 ? "CONTINUACAO_DE_BAIXA" : "PULLBACK_DE_BAIXA";
+    } else if (bbExpanding) {
+      scenario = "ROMPIMENTO_PENDENTE";
+    }
+
+    const projectedMovePct = price > 0 ? +(((atr * 1.5) / price) * 100).toFixed(2) : 0;
+
+    return {
+      trend,
+      strength,
+      scenario,
+      projectedMovePct,
+      emaFastSlopePct: +(emaFastSlope * 100).toFixed(3),
+      emaSlowSlopePct: +(emaSlowSlope * 100).toFixed(3),
+      compressedBands,
+    };
+  }
+
   getSignal(candles) {
     const ind = this.calculate(candles);
     if (!ind) {
@@ -163,8 +245,8 @@ class ConservativeStrategy {
       lastCandle.low >= Math.min(prevCandle.low, priorCandle.low) * 0.995;
     const swingStructure = touchedValueZone && reboundConfirmed && higherLow;
     const touchedShortValueZone =
-      distanceToFast <= 0.018 ||
-      distanceToSlow <= 0.012 ||
+      Math.abs(lastCandle.high - emaFastV) / emaFastV <= 0.018 ||
+      Math.abs(lastCandle.high - emaSlowV) / emaSlowV <= 0.012 ||
       lastCandle.high >= emaFastV * 0.997;
     const bearishClose = lastCandle.close < lastCandle.open;
     const rejectionConfirmed =
@@ -217,7 +299,7 @@ class ConservativeStrategy {
       longReasons.push("Volume confirma");
     }
 
-    if (!htfBull || !notOverextended || !swingStructure) {
+    if (!strongTrend || !notOverextended || !swingStructure) {
       longScore = 0;
       longReasons.length = 0;
     }
@@ -263,7 +345,7 @@ class ConservativeStrategy {
       shortReasons.push("Volume confirma");
     }
 
-    if (!htfBear || !notOverextendedShort || !swingShortStructure) {
+    if (!strongDowntrend || !notOverextendedShort || !swingShortStructure) {
       shortScore = 0;
       shortReasons.length = 0;
     }
@@ -272,9 +354,9 @@ class ConservativeStrategy {
     const MAX_SCORE = 12;
 
     const indicators = {
-      ema9: emaFastV,
-      ema21: emaSlowV,
-      ema50: emaLongV,
+      ema20: emaFastV,
+      ema50: emaSlowV,
+      ema100: emaLongV,
       ema200: emaFilterV,
       rsi,
       bbUpper: bb.upper,
@@ -284,6 +366,14 @@ class ConservativeStrategy {
       atr,
       volRatio: volRatio.toFixed(2),
       htfBias: htfBull ? "BULL" : htfBear ? "BEAR" : "NEUTRAL",
+      trend: trendContext.trend,
+      trendStrength: trendContext.strength,
+      trendScenario: trendContext.scenario,
+      projectedMovePct: trendContext.projectedMovePct,
+      emaFastSlopePct: trendContext.emaFastSlopePct,
+      emaSlowSlopePct: trendContext.emaSlowSlopePct,
+      compressedBands: trendContext.compressedBands,
+      takeProfitMode: this.takeProfitMode,
       swingPullback: touchedValueZone,
       reboundConfirmed,
       notOverextended,
@@ -294,11 +384,13 @@ class ConservativeStrategy {
     const slDistance = this.stopLossPct
       ? price * (this.stopLossPct / 100)
       : atr * this.atrMult;
-    const targetPct = this.takeProfitPct || 3;
-    const rewardDistance = price * (targetPct / 100);
+    const useFixedTakeProfit =
+      this.takeProfitMode === "FIXED_PCT" && Number.isFinite(this.takeProfitPct);
+    const rewardDistance = useFixedTakeProfit
+      ? price * (this.takeProfitPct / 100)
+      : atr * this.takeProfitMult;
     const riskReward = slDistance > 0 ? rewardDistance / slDistance : 0;
-    const stopLoss = this.formatLevel(price - slDistance, price);
-    const takeProfit = this.formatLevel(price * (1 + targetPct / 100), price);
+    const effectiveTargetPct = +((rewardDistance / price) * 100).toFixed(2);
     const formattedSlDistance = this.formatLevel(slDistance, price);
 
     if (allowLong && longScore >= MIN_SCORE && longScore >= shortScore) {
@@ -308,10 +400,10 @@ class ConservativeStrategy {
         maxScore: MAX_SCORE,
         reasons: longReasons,
         price,
-        stopLoss,
-        takeProfit,
+        stopLoss: this.formatLevel(price - slDistance, price),
+        takeProfit: this.formatLevel(price + rewardDistance, price),
         slDistance: formattedSlDistance,
-        targetPct,
+        targetPct: effectiveTargetPct,
         setup: "SWING_PULLBACK_LONG",
         confidence:
           longScore >= 8 ? "ALTA" : longScore >= 7 ? "MEDIA" : "MODERADA",
@@ -328,9 +420,9 @@ class ConservativeStrategy {
         reasons: shortReasons,
         price,
         stopLoss: this.formatLevel(price + slDistance, price),
-        takeProfit: this.formatLevel(price * (1 - targetPct / 100), price),
+        takeProfit: this.formatLevel(price - rewardDistance, price),
         slDistance: formattedSlDistance,
-        targetPct,
+        targetPct: effectiveTargetPct,
         setup: "SWING_PULLBACK_SHORT",
         confidence:
           shortScore >= 8 ? "ALTA" : shortScore >= 7 ? "MEDIA" : "MODERADA",
