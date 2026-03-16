@@ -225,7 +225,11 @@ class SignalAdvisor {
   }
 
   async _notifyTelegram(signalData) {
-    const sent = await this.notifier.sendEntry(signalData);
+    const sent = await this.notifier.sendEntry({
+      ...signalData,
+      candles: this.getCandles(signalData.symbol).slice(-120),
+      timeframe: this.config.timeframe || "4h",
+    });
     if (sent) this.log(`Telegram enviado para ${signalData.symbol}`);
   }
 

@@ -508,6 +508,7 @@
         <div class="stat"><strong id="cnt-long">0</strong>LONG</div>
         <div class="stat"><strong id="cnt-short">0</strong>SHORT</div>
         <button class="btn btn-config" onclick="saveSymbolSelection()">SALVAR MOEDAS</button>
+        <button class="btn btn-config" id="btn-telegram-test" onclick="doTelegramTest()">TESTAR TELEGRAM</button>
         <button class="btn btn-start" id="btn-start" onclick="doStart()">INICIAR</button>
         <button class="btn btn-stop" id="btn-stop" onclick="doStop()" style="display:none">PARAR</button>
       </div>
@@ -1334,6 +1335,33 @@
         await fetch("/api/bot/stop", { method: "POST" });
       } catch (error) {
         alert("Erro: " + error.message);
+      }
+    }
+
+    async function doTelegramTest() {
+      const button = document.getElementById("btn-telegram-test");
+      const originalLabel = button ? button.textContent : "TESTAR TELEGRAM";
+      if (button) {
+        button.disabled = true;
+        button.textContent = "ENVIANDO...";
+      }
+
+      try {
+        const response = await fetch("/api/telegram/test", { method: "POST" });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Falha ao enviar mensagem de teste");
+        }
+        setStatus("Mensagem de teste enviada para o Telegram.");
+        alert("Mensagem de teste enviada para os chats inscritos no Telegram.");
+      } catch (error) {
+        setStatus(`Falha no teste do Telegram: ${error.message}`);
+        alert("Erro: " + error.message);
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.textContent = originalLabel;
+        }
       }
     }
 

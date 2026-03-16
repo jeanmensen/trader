@@ -76,12 +76,18 @@ Variaveis esperadas no `backend/.env`:
 ```env
 TELEGRAM_ENABLED=true
 TELEGRAM_BOT_TOKEN=seu_token_aqui
-TELEGRAM_CHAT_ID=seu_chat_id_aqui
+TELEGRAM_CHAT_ID=seu_chat_id_aqui_opcional
 ```
 
 Existe tambem um endpoint de teste:
 
 - `POST /api/telegram/test`
+
+Fluxo de inscricao:
+
+- qualquer pessoa que enviar uma mensagem para o bot passa a ter o `chat_id` salvo automaticamente
+- os proximos alertas sao enviados para todos os chats inscritos
+- o `TELEGRAM_CHAT_ID` continua valendo como destinatario inicial opcional
 
 ## Stack
 

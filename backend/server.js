@@ -29,6 +29,7 @@ const telegramNotifier = new TelegramNotifier({
   enabled: process.env.TELEGRAM_ENABLED !== "false",
   token: process.env.TELEGRAM_BOT_TOKEN,
   chatId: process.env.TELEGRAM_CHAT_ID,
+  storagePath: path.join(__dirname, "data", "telegram-chats.json"),
 });
 
 function parseSymbolsList(raw, fallback = []) {
@@ -152,11 +153,29 @@ app.post("/api/reconnect", (req, res) => {
 });
 
 app.post("/api/telegram/test", async (req, res) => {
-  if (!telegramNotifier.isReady()) {
+  if (!telegramNotifier.hasCredentials()) {
     return res.status(400).json({ error: "Telegram nao configurado no .env" });
   }
 
-  const sent = await telegramNotifier.sendTestMessage();
+  if (!telegramNotifier.isReady()) {
+    return res.status(400).json({
+      error: "Nenhum chat inscrito no Telegram ainda. Envie uma mensagem para o bot primeiro.",
+    });
+  }
+
+  let sent = false;
+  const previewSignal = bot?.getTopOpportunities?.(1)?.[0];
+  if (previewSignal) {
+    sent = await telegramNotifier.sendEntry({
+      ...previewSignal,
+      candles: bot.getCandles(previewSignal.symbol).slice(-120),
+      timeframe: botConfig.timeframe || "4h",
+      time: new Date().toISOString(),
+    });
+  } else {
+    sent = await telegramNotifier.sendTestMessage();
+  }
+
   if (!sent) {
     return res.status(500).json({ error: "Falha ao enviar mensagem de teste" });
   }
