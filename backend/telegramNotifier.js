@@ -1,6 +1,7 @@
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
+const sharp = require("sharp");
 const logger = require("./logger");
 const { renderRadarSvg } = require("./telegramRadarRenderer");
 
@@ -17,6 +18,16 @@ class TelegramNotifier {
 
     this.loadStoredChats();
     this.startPolling();
+  }
+
+  setEnabled(enabled) {
+    this.enabled = !!enabled;
+    if (this.enabled) {
+      this.startPolling();
+      return;
+    }
+    this.polling = false;
+    clearTimeout(this.pollTimer);
   }
 
   isReady() {
@@ -38,9 +49,10 @@ class TelegramNotifier {
       `Nexus Signal - Nova entrada ${direction}`,
       `${signal.symbol}`,
       `Entrada: ${this.formatPrice(signal.price)}`,
+      `Atual: ${this.formatPrice(signal.currentPrice || signal.price)}`,
       `Stop: ${this.formatPrice(signal.stopLoss)}`,
       `${actionLabel} ${targetPrefix}${Number(signal.targetPct || 0).toFixed(1)}%: ${this.formatPrice(signal.takeProfit)}`,
-      `Score: ${signal.score}/${signal.maxScore || 10}`,
+      `Score: ${signal.score}/${signal.maxScore || 12}`,
       `Confianca: ${signal.confidence || "--"}`,
       `R/R: ${Number(signal.riskReward || 0).toFixed(2)}x`,
     ];
@@ -96,9 +108,11 @@ class TelegramNotifier {
   async sendRadar(signal) {
     const svg = renderRadarSvg(signal);
     if (!svg) return false;
+    const png = await this.renderRadarPng(svg);
+    if (!png) return false;
 
     const results = await Promise.allSettled(
-      [...this.chatIds].map((chatId) => this.sendDocument(chatId, svg, signal)),
+      [...this.chatIds].map((chatId) => this.sendPhoto(chatId, png, signal)),
     );
 
     results.forEach((result) => {
@@ -263,6 +277,46 @@ class TelegramNotifier {
       return true;
     } catch (error) {
       logger.warn(`Telegram document failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  async renderRadarPng(svg) {
+    try {
+      return await sharp(Buffer.from(svg)).png().toBuffer();
+    } catch (error) {
+      logger.warn(`Telegram PNG render failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  async sendPhoto(chatId, png, signal) {
+    try {
+      const form = new FormData();
+      form.append("chat_id", String(chatId));
+      form.append(
+        "caption",
+        `${signal.symbol || "ATIVO"} | ${signal.signal || "SETUP"} | radar de tendencia`,
+      );
+      form.append(
+        "photo",
+        new Blob([png], { type: "image/png" }),
+        `${signal.symbol || "radar"}-trend-radar.png`,
+      );
+
+      const response = await fetch(`https://api.telegram.org/bot${this.token}/sendPhoto`, {
+        method: "POST",
+        body: form,
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.description || `HTTP ${response.status}`);
+      }
+
+      return true;
+    } catch (error) {
+      logger.warn(`Telegram photo failed: ${error.message}`);
       return false;
     }
   }

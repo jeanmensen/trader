@@ -52,6 +52,7 @@ function parseSymbolsList(raw, fallback = []) {
 let botConfig = {
   symbol: process.env.DEFAULT_SYMBOL || "BTCUSDT",
   timeframe: process.env.DEFAULT_TIMEFRAME || "4h",
+  telegramEnabled: process.env.TELEGRAM_ENABLED !== "false",
   tradeDirection: String(process.env.TRADE_DIRECTION || "LONG").toUpperCase(),
   leverage: parseInt(process.env.DEFAULT_LEVERAGE || "2"),
   riskPerTrade: parseFloat(process.env.RISK_PER_TRADE || "0.5"),
@@ -152,37 +153,6 @@ app.post("/api/reconnect", (req, res) => {
   res.json({ ok: !!binance, connected: !!binance, testnet: botConfig.testnet });
 });
 
-app.post("/api/telegram/test", async (req, res) => {
-  if (!telegramNotifier.hasCredentials()) {
-    return res.status(400).json({ error: "Telegram nao configurado no .env" });
-  }
-
-  if (!telegramNotifier.isReady()) {
-    return res.status(400).json({
-      error: "Nenhum chat inscrito no Telegram ainda. Envie uma mensagem para o bot primeiro.",
-    });
-  }
-
-  let sent = false;
-  const previewSignal = bot?.getTopOpportunities?.(1)?.[0];
-  if (previewSignal) {
-    sent = await telegramNotifier.sendEntry({
-      ...previewSignal,
-      candles: bot.getCandles(previewSignal.symbol).slice(-120),
-      timeframe: botConfig.timeframe || "4h",
-      time: new Date().toISOString(),
-    });
-  } else {
-    sent = await telegramNotifier.sendTestMessage();
-  }
-
-  if (!sent) {
-    return res.status(500).json({ error: "Falha ao enviar mensagem de teste" });
-  }
-
-  res.json({ ok: true });
-});
-
 // Get config
 app.get("/api/config", (req, res) => res.json(botConfig));
 
@@ -195,6 +165,7 @@ app.put("/api/config", async (req, res) => {
     takeProfitPct,
     takeProfitMult,
     maxOpenTrades,
+    telegramEnabled,
   } =
     req.body;
   let scanSymbols = req.body?.scanSymbols;
@@ -247,6 +218,10 @@ app.put("/api/config", async (req, res) => {
     }
   }
 
+  if (telegramEnabled !== undefined && typeof telegramEnabled !== "boolean") {
+    return res.status(400).json({ error: "telegramEnabled deve ser true ou false" });
+  }
+
   if ((takeProfitMode || botConfig.takeProfitMode) === "FIXED_PCT") {
     const nextTakeProfitPct = takeProfitPct !== undefined ? takeProfitPct : botConfig.takeProfitPct;
     if (!Number.isFinite(nextTakeProfitPct) || nextTakeProfitPct <= 0) {
@@ -254,7 +229,7 @@ app.put("/api/config", async (req, res) => {
     }
   }
 
-  botConfig = {
+  const nextConfig = {
     ...botConfig,
     ...req.body,
     tradeDirection: tradeDirection !== undefined ? tradeDirection : botConfig.tradeDirection,
@@ -271,7 +246,9 @@ app.put("/api/config", async (req, res) => {
         : parseSymbolsList(botConfig.scanSymbols, [req.body?.symbol || botConfig.symbol]),
   };
   try {
-    if (bot) await bot.updateConfig(botConfig);
+    if (bot) await bot.updateConfig(nextConfig);
+    botConfig = nextConfig;
+    if (telegramEnabled !== undefined) telegramNotifier.setEnabled(telegramEnabled);
     broadcast({ type: "config", data: botConfig });
     res.json({ ok: true, config: botConfig });
   } catch (e) {
@@ -348,10 +325,11 @@ app.get("/api/market/:symbol", async (req, res) => {
     if (canUseBotCache) {
       const candles = bot.getCandles(symbol).slice(-limit);
       const lastClose = candles[candles.length - 1]?.close || 0;
+      const currentPrice = bot.getCurrentPrice(symbol) || lastClose;
       return res.json({
-        ticker: { lastPrice: lastClose, symbol },
+        ticker: { lastPrice: currentPrice, symbol },
         candles,
-        markPrice: { markPrice: lastClose },
+        markPrice: { markPrice: currentPrice },
       });
     }
     const [ticker, candles] = await Promise.all([
@@ -368,25 +346,32 @@ app.get("/api/market/:symbol", async (req, res) => {
 app.get("/api/signal/:symbol", async (req, res) => {
   try {
     if (!binance) return res.status(400).json({ error: "Não conectado" });
-    if (bot && bot.getCandles().length > 0) {
-      const signal = bot.analyzeNow();
+    const symbol = String(req.params.symbol || "").toUpperCase();
+    if (bot && bot.getCandles(symbol).length > 0) {
+      const signal = bot.getSignalSnapshot(symbol);
       return res.json({
-        symbol: req.params.symbol,
+        symbol,
         signal,
         time: new Date().toISOString(),
       });
     }
     const ConservativeStrategy = require("./strategy");
     const strategy = new ConservativeStrategy();
-    const candles = await binance.getKlines(
-      req.params.symbol,
-      req.query.interval || "15m",
-      250,
-    );
+    const [candles, ticker] = await Promise.all([
+      binance.getKlines(
+        symbol,
+        req.query.interval || "15m",
+        250,
+      ),
+      binance.getTicker(symbol),
+    ]);
     const signal = strategy.getSignal(candles);
     res.json({
-      symbol: req.params.symbol,
-      signal,
+      symbol,
+      signal: {
+        ...signal,
+        currentPrice: Number(ticker?.lastPrice || signal?.price || candles[candles.length - 1]?.close || 0),
+      },
       time: new Date().toISOString(),
     });
   } catch (e) {

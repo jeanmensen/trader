@@ -57,6 +57,12 @@ class SignalAdvisor {
     }
   }
 
+  _resetRuntimeState() {
+    this.lastAlertMap = {};
+    this.state.stats = { totalSignals: 0, longSignals: 0, shortSignals: 0 };
+    this.state.logs = [];
+  }
+
   async _reloadSymbols() {
     this.symbols = this._buildSymbolList();
     this._resetSymbolState(this.symbols);
@@ -93,6 +99,7 @@ class SignalAdvisor {
   // ── Lifecycle ──────────────────────────────────────────────────────────────
   async start() {
     if (this.state.running) return { ok: false, msg: "Already running" };
+    this._resetRuntimeState();
     this.log(`🚀 Mosaic Advisor iniciado — ${this.symbols.length} ativos`);
 
     await this.client.syncTime();
@@ -101,7 +108,7 @@ class SignalAdvisor {
     this.log(`📥 Carregando histórico para ${this.symbols.length} ativos...`);
     for (const sym of this.symbols) {
       try {
-        const candles = await this.client.getKlines(sym, this.config.timeframe || "1h", 250);
+        const candles = await this.client.getKlines(sym, this.config.timeframe || "4h", 250);
         this.state.candlesMap[sym] = candles;
         this._analyzeSymbol(sym); // análise inicial
       } catch (e) {
@@ -134,14 +141,44 @@ class SignalAdvisor {
     if (!this.state.running) return { ok: false, msg: "Not running" };
     this.client.closeAllStreams();
     this.state.running = false;
+    this.lastAlertMap = {};
     this.log("⛔ Advisor parado");
     this.broadcast({ type: "bot_status", data: { running: false } });
     return { ok: true, msg: "Advisor stopped" };
   }
 
+  _buildSignalData(symbol) {
+    const candles = this.state.candlesMap[symbol];
+    if (!candles || candles.length < 210) return null;
+
+    const signal = this.strategy.getSignal(candles);
+    const lastCandle = candles[candles.length - 1];
+    const entryPrice = Number.isFinite(signal?.price) ? signal.price : lastCandle?.close;
+    const currentPrice = this.state.priceMap[symbol] || lastCandle?.close || entryPrice;
+
+    return {
+      ...signal,
+      symbol,
+      time: new Date().toISOString(),
+      price: entryPrice,
+      currentPrice,
+      candlesCount: candles.length,
+    };
+  }
+
+  _hasSignalChanged(previousSignal, signalData) {
+    if (!previousSignal) return true;
+    return (
+      previousSignal.signal !== signalData.signal ||
+      Number(previousSignal.price || 0) !== Number(signalData.price || 0) ||
+      Number(previousSignal.takeProfit || 0) !== Number(signalData.takeProfit || 0) ||
+      Number(previousSignal.stopLoss || 0) !== Number(signalData.stopLoss || 0)
+    );
+  }
+
   // ── WebSocket Kline por símbolo ────────────────────────────────────────────
   _startKlineStream(symbol) {
-    const interval = this.config.timeframe || "1h";
+    const interval = this.config.timeframe || "4h";
     this.client.subscribeKline(symbol, interval, (candle) => {
       if (!this.state.candlesMap[symbol]) this.state.candlesMap[symbol] = [];
       const candles = this.state.candlesMap[symbol];
@@ -164,32 +201,23 @@ class SignalAdvisor {
 
   // ── Análise de sinal por símbolo ───────────────────────────────────────────
   _analyzeSymbol(symbol) {
-    const candles = this.state.candlesMap[symbol];
-    if (!candles || candles.length < 210) return;
-
     try {
       const previousSignal = this.state.signalsMap[symbol];
-      const signal = this.strategy.getSignal(candles);
-      const lastCandle = candles[candles.length - 1];
-      const signalData = {
-        ...signal,
-        symbol,
-        time: new Date().toISOString(),
-        price: this.state.priceMap[symbol] || lastCandle?.close,
-        candlesCount: candles.length,
-      };
+      const signalData = this._buildSignalData(symbol);
+      if (!signalData) return;
+      const signalChanged = this._hasSignalChanged(previousSignal, signalData);
 
       this.state.signalsMap[symbol] = signalData;
       this.broadcast({ type: "signal_update", data: signalData });
 
-      if (signal.signal !== "NONE") {
+      if (signalData.signal !== "NONE" && signalChanged) {
         this.state.stats.totalSignals++;
-        if (signal.signal === "LONG") this.state.stats.longSignals++;
-        else if (signal.signal === "SHORT") this.state.stats.shortSignals++;
+        if (signalData.signal === "LONG") this.state.stats.longSignals++;
+        else if (signalData.signal === "SHORT") this.state.stats.shortSignals++;
 
-        const emoji = signal.signal === "LONG" ? "📈" : "📉";
+        const emoji = signalData.signal === "LONG" ? "📈" : "📉";
         this.log(
-          `${emoji} SINAL: ${signal.signal} ${symbol} | Score: ${signal.score}/${signal.maxScore || 10} | $${signalData.price?.toFixed(4)}`,
+          `${emoji} SINAL: ${signalData.signal} ${symbol} | Score: ${signalData.score}/${signalData.maxScore || 12} | entrada $${signalData.price?.toFixed(4)} | atual $${signalData.currentPrice?.toFixed(4)}`,
         );
       }
       if (this._shouldSendTelegramAlert(previousSignal, signalData)) {
@@ -213,11 +241,7 @@ class SignalAdvisor {
     ].join("|");
 
     const previousKey = this.lastAlertMap[signalData.symbol];
-    const signalChanged =
-      !previousSignal ||
-      previousSignal.signal !== signalData.signal ||
-      Number(previousSignal.takeProfit || 0) !== Number(signalData.takeProfit || 0) ||
-      Number(previousSignal.stopLoss || 0) !== Number(signalData.stopLoss || 0);
+    const signalChanged = this._hasSignalChanged(previousSignal, signalData);
 
     if (!signalChanged || previousKey === alertKey) return false;
     this.lastAlertMap[signalData.symbol] = alertKey;
@@ -254,6 +278,10 @@ class SignalAdvisor {
     }
     this._broadcastMosaicState();
     return { analyzed: this.symbols.length };
+  }
+
+  getSignalSnapshot(symbol) {
+    return this._buildSignalData(symbol);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -297,6 +325,10 @@ class SignalAdvisor {
     if (symbol) return this.state.candlesMap[symbol] || [];
     const firstSymbol = this.symbols[0];
     return firstSymbol ? this.state.candlesMap[firstSymbol] || [] : [];
+  }
+
+  getCurrentPrice(symbol) {
+    return this.state.priceMap[symbol] || null;
   }
 
   async updateConfig(cfg) {

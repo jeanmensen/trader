@@ -69,7 +69,7 @@ class ConservativeStrategy {
 
     const recentVol = volumes.slice(-20);
     const avgVol = recentVol.reduce((sum, value) => sum + value, 0) / recentVol.length;
-    const volRatio = volumes[volumes.length - 1] / avgVol;
+    const volRatio = avgVol > 0 ? volumes[volumes.length - 1] / avgVol : 0;
 
     return {
       price,
@@ -124,6 +124,7 @@ class ConservativeStrategy {
     const emaSlowSlope = (emaSlowV - emaSlowP) / emaSlowP;
     const compressedBands = bbWidth < 0.06;
     const priceNearMiddleBand = Math.abs(price - bb.middle) / price < 0.015;
+    const consolidationZone = compressedBands && priceNearMiddleBand;
 
     let trend = "LATERAL";
     let strengthScore = 0;
@@ -141,13 +142,15 @@ class ConservativeStrategy {
     if (bbExpanding) strengthScore += 1;
     if (volRatio >= 1.05) strengthScore += 1;
 
-    if (trend === "LATERAL" || (compressedBands && priceNearMiddleBand)) {
+    if (trend === "LATERAL") {
       trend = "LATERAL";
     }
 
     const strength =
       trend === "LATERAL"
         ? compressedBands ? "BAIXA" : "MEDIA"
+        : consolidationZone
+          ? "BAIXA"
         : strengthScore >= 5
           ? "FORTE"
           : strengthScore >= 3
@@ -156,9 +159,17 @@ class ConservativeStrategy {
 
     let scenario = "CONSOLIDACAO";
     if (trend === "ALTA") {
-      scenario = price > emaFastV && rsi >= 55 ? "CONTINUACAO_DE_ALTA" : "PULLBACK_DE_ALTA";
+      scenario = consolidationZone
+        ? "PULLBACK_DE_ALTA"
+        : price > emaFastV && rsi >= 55
+          ? "CONTINUACAO_DE_ALTA"
+          : "PULLBACK_DE_ALTA";
     } else if (trend === "BAIXA") {
-      scenario = price < emaFastV && rsi <= 45 ? "CONTINUACAO_DE_BAIXA" : "PULLBACK_DE_BAIXA";
+      scenario = consolidationZone
+        ? "PULLBACK_DE_BAIXA"
+        : price < emaFastV && rsi <= 45
+          ? "CONTINUACAO_DE_BAIXA"
+          : "PULLBACK_DE_BAIXA";
     } else if (bbExpanding) {
       scenario = "ROMPIMENTO_PENDENTE";
     }
@@ -183,6 +194,7 @@ class ConservativeStrategy {
         signal: "NONE",
         reason: "Dados insuficientes (minimo 210 candles)",
         indicators: null,
+        maxScore: 12,
       };
     }
 
@@ -299,7 +311,8 @@ class ConservativeStrategy {
       longReasons.push("Volume confirma");
     }
 
-    if (!strongTrend || !notOverextended || !swingStructure) {
+    const longTrendOK = strongTrend || (freshGoldenCross && htfBull);
+    if (!longTrendOK || !notOverextended || !swingStructure) {
       longScore = 0;
       longReasons.length = 0;
     }
@@ -345,7 +358,8 @@ class ConservativeStrategy {
       shortReasons.push("Volume confirma");
     }
 
-    if (!strongDowntrend || !notOverextendedShort || !swingShortStructure) {
+    const shortTrendOK = strongDowntrend || (freshDeathCross && htfBear);
+    if (!shortTrendOK || !notOverextendedShort || !swingShortStructure) {
       shortScore = 0;
       shortReasons.length = 0;
     }
@@ -406,7 +420,7 @@ class ConservativeStrategy {
         targetPct: effectiveTargetPct,
         setup: "SWING_PULLBACK_LONG",
         confidence:
-          longScore >= 8 ? "ALTA" : longScore >= 7 ? "MEDIA" : "MODERADA",
+          longScore >= 10 ? "ALTA" : longScore >= 8 ? "MEDIA" : "MODERADA",
         riskReward: +riskReward.toFixed(2),
         indicators,
       };
@@ -425,7 +439,7 @@ class ConservativeStrategy {
         targetPct: effectiveTargetPct,
         setup: "SWING_PULLBACK_SHORT",
         confidence:
-          shortScore >= 8 ? "ALTA" : shortScore >= 7 ? "MEDIA" : "MODERADA",
+          shortScore >= 10 ? "ALTA" : shortScore >= 8 ? "MEDIA" : "MODERADA",
         riskReward: +riskReward.toFixed(2),
         indicators,
       };

@@ -508,7 +508,6 @@
         <div class="stat"><strong id="cnt-long">0</strong>LONG</div>
         <div class="stat"><strong id="cnt-short">0</strong>SHORT</div>
         <button class="btn btn-config" onclick="saveSymbolSelection()">SALVAR MOEDAS</button>
-        <button class="btn btn-config" id="btn-telegram-test" onclick="doTelegramTest()">TESTAR TELEGRAM</button>
         <button class="btn btn-start" id="btn-start" onclick="doStart()">INICIAR</button>
         <button class="btn btn-stop" id="btn-stop" onclick="doStop()" style="display:none">PARAR</button>
       </div>
@@ -546,6 +545,13 @@
                 <span class="symbol-help">Alvo fixo (%)</span>
                 <input class="direction-select" id="take-profit-pct" type="number" min="0.1" max="50" step="0.1" value="3.0" oninput="state.takeProfitPct=Number(this.value||0); updateTakeProfitPreview()" />
               </div>
+            </div>
+            <div class="direction-group">
+              <span class="symbol-help">Telegram</span>
+              <select class="direction-select" id="telegram-enabled" onchange="setTelegramEnabled(this.value)">
+                <option value="true">ATIVADO</option>
+                <option value="false">DESATIVADO</option>
+              </select>
             </div>
             <span class="config-preview" id="take-profit-preview">Carregando estimativa do alvo...</span>
             <span class="symbol-help" id="selected-count">0 selecionadas</span>
@@ -585,7 +591,7 @@
     </main>
 
     <div class="status-bar">
-      <span>WS <span id="lbl-ws">--</span></span>
+      <span><span class="dot" id="dot-ws"></span>WS <span id="lbl-ws">--</span></span>
       <span>ATIVOS <span id="lbl-count">0</span></span>
       <span>TIMEFRAME <span id="lbl-tf">--</span></span>
       <span id="lbl-status">Aguardando conexao...</span>
@@ -614,6 +620,7 @@
       topOpportunities: [],
       timeframe: "4h",
       tradeDirection: "LONG",
+      telegramEnabled: true,
       takeProfitMode: "ATR",
       takeProfitPct: 3.0,
       takeProfitMult: 3.0,
@@ -630,15 +637,17 @@
     }
 
     function formatPrice(sym, price) {
-      if (!price) return "---";
+      if (price == null || price === "") return "---";
       const value = Number(price);
-      if (value >= 1000) return "$" + value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      if (!Number.isFinite(value)) return "---";
+      if (value >= 1000) return "$" + value.toFixed(2);
       if (value >= 1) return "$" + value.toFixed(4);
-      return "$" + value.toFixed(6);
+      if (value >= 0.01) return "$" + value.toFixed(6);
+      return "$" + value.toFixed(8);
     }
 
     function formatPriceBrl(price) {
-      if (!price) return "---";
+      if (price == null || price === "") return "---";
       const brl = Number(price) * Number(state.usdBrl || 0);
       if (!Number.isFinite(brl) || brl <= 0) return "---";
       return brl.toLocaleString("pt-BR", {
@@ -749,6 +758,12 @@
         : `ATR x${Number(state.takeProfitMult || 0).toFixed(1)}: alvo aproximado de ${estimatedPct.toFixed(1)}% no mercado atual`;
     }
 
+    function setTelegramEnabled(value) {
+      state.telegramEnabled = String(value) !== "false";
+      const select = document.getElementById("telegram-enabled");
+      if (select) select.value = String(state.telegramEnabled);
+    }
+
     function ensureDetailSymbol() {
       if (state.detailSymbol && state.symbols.includes(state.detailSymbol)) return state.detailSymbol;
       state.detailSymbol = bestSymbol || state.symbols[0] || null;
@@ -788,14 +803,28 @@
       const atr = Number(source.atr || fallbackIndicators.atr || 0);
       const trend = source.trend || fallbackIndicators.trend || "LATERAL";
       const scenario = source.trendScenario || fallbackIndicators.trendScenario || "CONSOLIDACAO";
+      const signalType = signal?.signal || "NONE";
       const points = [];
       let drift = 0;
-      if (trend === "ALTA") drift = atr * 0.45;
-      else if (trend === "BAIXA") drift = -atr * 0.45;
-      if (scenario.includes("PULLBACK")) drift *= 0.35;
-      if (trend === "LATERAL") drift = 0;
+
+      if (signalType === "LONG") drift = atr * 0.35;
+      else if (signalType === "SHORT") drift = -atr * 0.35;
+      else {
+        if (trend === "ALTA") drift = atr * 0.45;
+        else if (trend === "BAIXA") drift = -atr * 0.45;
+        if (scenario.includes("PULLBACK")) drift *= 0.35;
+        if (trend === "LATERAL") drift = 0;
+      }
+
       for (let i = 1; i <= 5; i++) {
-        const wave = trend === "LATERAL" ? Math.sin(i) * atr * 0.25 : 0;
+        const wave =
+          signalType === "LONG"
+            ? Math.abs(Math.sin(i)) * atr * 0.08
+            : signalType === "SHORT"
+              ? -Math.abs(Math.sin(i)) * atr * 0.08
+              : trend === "LATERAL"
+                ? Math.sin(i) * atr * 0.25
+                : 0;
         const value = lastClose + drift * i + wave;
         points.push({
           value,
@@ -814,7 +843,7 @@
           trendScenario: "CONSOLIDACAO",
           projectedMovePct: 0,
           atr: 0,
-          rsi: 0,
+          rsi: null,
           volRatio: "--",
           htfBias: "NEUTRAL",
           compressedBands: false,
@@ -988,7 +1017,7 @@
             <div class="trend-grid">
               <div><span class="label">CENARIO</span><span class="value">${scenario}</span></div>
               <div><span class="label">HTF</span><span class="value">${indicators.htfBias || "--"}</span></div>
-              <div><span class="label">RSI</span><span class="value">${Number(indicators.rsi || 0).toFixed(1)}</span></div>
+              <div><span class="label">RSI</span><span class="value">${indicators.rsi != null ? Number(indicators.rsi).toFixed(1) : "--"}</span></div>
               <div><span class="label">VOL</span><span class="value">${indicators.volRatio || "--"}x</span></div>
               <div><span class="label">PROJECAO</span><span class="value">${projectedMove}% / 5 candles</span></div>
               <div><span class="label">BANDAS</span><span class="value">${indicators.compressedBands ? "compressas" : indicators.bbExpanding ? "expandindo" : "normais"}</span></div>
@@ -1017,6 +1046,7 @@
 
     function setDot(id, active) {
       const el = document.getElementById(id);
+      if (!el) return;
       el.className = "dot" + (active ? " green" : "");
     }
 
@@ -1089,6 +1119,7 @@
       const isShort = signal.signal === "SHORT";
       const targetPct = Number(signal.targetPct || 0).toFixed(1);
       const rr = signal.riskReward != null ? `${Number(signal.riskReward).toFixed(2)}x` : "--";
+      const currentPrice = signal.currentPrice || signal.price;
       return `
         <div class="top-item" onclick="setDetailSymbol('${signal.symbol}')">
           <div class="top-item-head">
@@ -1097,15 +1128,16 @@
               <div class="symbol">${ticker(signal.symbol)}</div>
               <div class="pair">${signal.symbol}</div>
             </div>
-            <div class="score">${signal.score || 0}/${signal.maxScore || 10}</div>
+            <div class="score">${signal.score || 0}/${signal.maxScore || 12}</div>
           </div>
           <div class="levels">
+            <div><span class="label">ATUAL</span><span class="value">${formatPrice(signal.symbol, currentPrice)}<br>${formatPriceBrl(currentPrice)}</span></div>
             <div><span class="label">ENTRADA</span><span class="value">${formatPrice(signal.symbol, signal.price)}<br>${formatPriceBrl(signal.price)}</span></div>
             <div><span class="label">${isShort ? `RECOMPRA -${targetPct}%` : `VENDER +${targetPct}%`}</span><span class="value target">${formatPrice(signal.symbol, signal.takeProfit)}<br>${formatPriceBrl(signal.takeProfit)}</span></div>
             <div><span class="label">STOP</span><span class="value stop">${formatPrice(signal.symbol, signal.stopLoss)}<br>${formatPriceBrl(signal.stopLoss)}</span></div>
-            <div><span class="label">SETUP</span><span class="value">${signal.signal || "--"} · ${signal.confidence || "--"}</span></div>
           </div>
           <div class="meta" style="margin-top:10px;">
+            <div><span class="label">SETUP</span><span class="value">${signal.signal || "--"} · ${signal.confidence || "--"}</span></div>
             <div><span class="label">R/R</span><span class="value">${rr}</span></div>
             <div><span class="label">ATUALIZADO</span><span class="value">${relTime(signal.time)}</span></div>
           </div>
@@ -1135,9 +1167,10 @@
         signal?.signal === "LONG" ? "LONG" :
         signal?.signal === "SHORT" ? "SHORT" :
         "NEUTRO";
-      const score = signal?.score != null ? `${signal.score}/${signal.maxScore || 10}` : "--";
+      const score = signal?.score != null ? `${signal.score}/${signal.maxScore || 12}` : "--";
       const targetPct = Number(signal?.targetPct || 0).toFixed(1);
-      const livePrice = price || signal?.price || null;
+      const livePrice = price || signal?.currentPrice || signal?.price || null;
+      const entryPrice = signal?.price || null;
       const isShort = signal?.signal === "SHORT";
 
       return `
@@ -1148,13 +1181,16 @@
           </div>
           <div class="${badgeClass}">${isBest ? "TOP" : badgeLabel}</div>
         </div>
+        <div class="pair">${livePrice ? "preco atual" : "aguardando dados"}</div>
         <div class="price" id="price-${sym}">${formatPrice(sym, livePrice)}</div>
         <div class="price-brl" id="price-brl-${sym}">${formatPriceBrl(livePrice)}</div>
         <div class="info-grid">
           <div><span class="label">SCORE</span><span class="value">${score}</span></div>
           <div><span class="label">CONF</span><span class="value">${signal?.confidence || "--"}</span></div>
+          <div><span class="label">ENTRADA</span><span class="value">${formatPrice(sym, entryPrice)}</span></div>
           <div><span class="label">STOP</span><span class="value stop">${formatPrice(sym, signal?.stopLoss)}</span></div>
           <div><span class="label">${isShort ? `ALVO -${targetPct}%` : `ALVO +${targetPct}%`}</span><span class="value target">${formatPrice(sym, signal?.takeProfit)}</span></div>
+          <div><span class="label">ATUAL</span><span class="value">${formatPrice(sym, livePrice)}</span></div>
         </div>
         <div class="meta">
           <div><span class="label">R/R</span><span class="value">${signal?.riskReward != null ? `${Number(signal.riskReward).toFixed(2)}x` : "--"}</span></div>
@@ -1176,11 +1212,16 @@
     function highlightBest() {
       let nextBest = null;
       let nextScore = -1;
+      let nextRR = -1;
       for (const sym of state.symbols) {
         const sig = state.signals[sym];
         if (!sig || sig.signal === "NONE") continue;
-        if ((sig.score || 0) > nextScore) {
+        if (
+          (sig.score || 0) > nextScore ||
+          ((sig.score || 0) === nextScore && (sig.riskReward || 0) > nextRR)
+        ) {
           nextScore = sig.score || 0;
+          nextRR = sig.riskReward || 0;
           nextBest = sym;
         }
       }
@@ -1243,6 +1284,7 @@
         state.timeframe = data.timeframe;
         document.getElementById("lbl-tf").textContent = String(data.timeframe).toUpperCase();
         setTradeDirection(data.tradeDirection || state.tradeDirection);
+        setTelegramEnabled(data.telegramEnabled);
         state.takeProfitPct = Number(data.takeProfitPct || state.takeProfitPct);
         state.takeProfitMult = Number(data.takeProfitMult || state.takeProfitMult);
         setTakeProfitMode(data.takeProfitMode || (data.takeProfitPct ? "FIXED_PCT" : "ATR"));
@@ -1338,33 +1380,6 @@
       }
     }
 
-    async function doTelegramTest() {
-      const button = document.getElementById("btn-telegram-test");
-      const originalLabel = button ? button.textContent : "TESTAR TELEGRAM";
-      if (button) {
-        button.disabled = true;
-        button.textContent = "ENVIANDO...";
-      }
-
-      try {
-        const response = await fetch("/api/telegram/test", { method: "POST" });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          throw new Error(data.error || "Falha ao enviar mensagem de teste");
-        }
-        setStatus("Mensagem de teste enviada para o Telegram.");
-        alert("Mensagem de teste enviada para os chats inscritos no Telegram.");
-      } catch (error) {
-        setStatus(`Falha no teste do Telegram: ${error.message}`);
-        alert("Erro: " + error.message);
-      } finally {
-        if (button) {
-          button.disabled = false;
-          button.textContent = originalLabel;
-        }
-      }
-    }
-
     async function loadConfig() {
       try {
         const response = await fetch("/api/config");
@@ -1378,6 +1393,7 @@
           document.getElementById("lbl-tf").textContent = String(data.timeframe).toUpperCase();
         }
         setTradeDirection(data.tradeDirection || state.tradeDirection);
+        setTelegramEnabled(data.telegramEnabled);
         state.takeProfitPct = Number(data.takeProfitPct || state.takeProfitPct);
         state.takeProfitMult = Number(data.takeProfitMult || state.takeProfitMult);
         setTakeProfitMode(data.takeProfitMode || (data.takeProfitPct ? "FIXED_PCT" : "ATR"));
@@ -1406,6 +1422,7 @@
           body: JSON.stringify({
             scanSymbols: state.selectedSymbols,
             tradeDirection: state.tradeDirection,
+            telegramEnabled: state.telegramEnabled,
             takeProfitMode: state.takeProfitMode,
             takeProfitPct: state.takeProfitMode === "FIXED_PCT" ? state.takeProfitPct : null,
             takeProfitMult: state.takeProfitMult,
@@ -1417,6 +1434,7 @@
           return;
         }
         state.takeProfitMode = data.config?.takeProfitMode || state.takeProfitMode;
+        setTelegramEnabled(data.config?.telegramEnabled);
         state.takeProfitPct = Number(data.config?.takeProfitPct || state.takeProfitPct);
         state.takeProfitMult = Number(data.config?.takeProfitMult || state.takeProfitMult);
         setTakeProfitMode(state.takeProfitMode);
@@ -1425,8 +1443,8 @@
         state.symbols = [...state.selectedSymbols];
         buildMosaic();
         updateTakeProfitPreview();
-        setStatus(`Config atualizada: ${state.tradeDirection} | ${getTakeProfitSummary()}`);
-        document.getElementById("symbol-config-sub").textContent = `${state.selectedSymbols.length} pares salvos | direcao ${state.tradeDirection} | ${getTakeProfitSummary()}`;
+        setStatus(`Config atualizada: ${state.tradeDirection} | Telegram ${state.telegramEnabled ? "ativo" : "desligado"} | ${getTakeProfitSummary()}`);
+        document.getElementById("symbol-config-sub").textContent = `${state.selectedSymbols.length} pares salvos | direcao ${state.tradeDirection} | Telegram ${state.telegramEnabled ? "ativo" : "desligado"} | ${getTakeProfitSummary()}`;
         if (!state.detailSymbol || !state.symbols.includes(state.detailSymbol)) {
           setDetailSymbol(state.symbols[0] || null);
         } else {
