@@ -239,7 +239,7 @@ class ConservativeStrategy {
     const notOverextendedShort = price > bb.lower * 1.008;
     const regimeOK = bbExpanding || price > bb.middle;
     const shortRegimeOK = bbExpanding || price < bb.middle;
-    const volConfirm = volRatio >= 1.05;
+    const volConfirm = volRatio >= 1.3;
 
     const distanceToFast = Math.abs(price - emaFastV) / emaFastV;
     const distanceToSlow = Math.abs(price - emaSlowV) / emaSlowV;
@@ -254,7 +254,7 @@ class ConservativeStrategy {
       lastCandle.close > emaFastV &&
       prevCandle.low <= emaFastV * 1.01;
     const higherLow =
-      lastCandle.low >= Math.min(prevCandle.low, priorCandle.low) * 0.995;
+      lastCandle.low >= Math.min(prevCandle.low, priorCandle.low);
     const swingStructure = touchedValueZone && reboundConfirmed && higherLow;
     const touchedShortValueZone =
       Math.abs(lastCandle.high - emaFastV) / emaFastV <= 0.018 ||
